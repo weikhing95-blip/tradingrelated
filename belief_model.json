@@ -1,0 +1,99 @@
+{
+  "author": "AJ (AJ Investment Research)",
+  "asset": "NASDAQ Composite",
+  "as_of": "17 Jun 2026",
+  "core_stance": "Trim NASDAQ into summer strength, keep a core position, preserve the option to return, and reduce risk further only on identifiable macro triggers — not on the calendar alone.",
+  "base_case_action": "A disciplined trim into July and early August strength, a retained core position, and any further reduction in risk gated to identifiable macro triggers rather than to the calendar.",
+  "base_case_target_exposure_pct": 70,
+  "decision_standard": "Risk-efficiency standard: a July trim/exit is judged correct if the index either (a) fell and stayed materially below its July level for a sustained stretch (drawdown avoided), or (b) made no durable progress above the July level for an extended period and returned to roughly the same level (dead money avoided), or both. Judge the action by the risk the investor actually bore, not by where the year closed.",
+  "primary_signal": "10-Year US Treasury yield",
+  "bearish_triggers": [
+    {
+      "id": "yield_shock",
+      "name": "Renewed yield shock",
+      "indicator": "10Y Treasury yield",
+      "threshold": "materially above the 4.5-5.0% area",
+      "rationale": "The 10Y was the proximate trigger that ended the 2018 and 2023 advances and is the single most informative early warning, since it drove the two strong-first-half years (2023, 2024) that most resemble 2026 in regime.",
+      "source_quote": "A renewed yield shock, with the 10 Year pushing materially above the 4.5 to 5 percent area, the trigger that ended the 2018 and 2023 advances."
+    },
+    {
+      "id": "tariff_escalation",
+      "name": "US-China tariff / rare-earth re-escalation",
+      "indicator": "US-China trade tension",
+      "threshold": "qualitative",
+      "rationale": "The specific catalyst that capped both the spring 2026 and the late 2025 advances.",
+      "source_quote": "Re escalation of tariff or rare earth tensions between the United States and China, the specific catalyst that capped both the spring 2026 and the late 2025 advances."
+    },
+    {
+      "id": "hawkish_fed",
+      "name": "Hawkish Fed surprise",
+      "indicator": "Fed policy / priced rate cut",
+      "threshold": "qualitative",
+      "rationale": "A hawkish surprise that removes the partially priced cut would remove a support the on-hold regime currently provides.",
+      "source_quote": "A hawkish surprise from the Federal Reserve that removes the partially priced cut."
+    },
+    {
+      "id": "ai_crowding",
+      "name": "Mega-cap AI crowding / momentum exhaustion",
+      "indicator": "Mega-cap AI leadership breadth and momentum",
+      "threshold": "qualitative",
+      "rationale": "Visible crowding and momentum exhaustion was the signature of the 2020, 2021, and 2024 unwinds.",
+      "source_quote": "Visible crowding and momentum exhaustion in mega cap artificial intelligence leadership, the signature of the 2020, 2021, and 2024 unwinds."
+    },
+    {
+      "id": "seasonal_window",
+      "name": "Late-July through September window",
+      "indicator": "Calendar",
+      "threshold": "entry into the late-July–September window",
+      "rationale": "Most local peaks clustered here — a reason to tighten risk, not necessarily to exit on the date.",
+      "source_quote": "Entry into the late July through September window, where most local peaks clustered, a reason to tighten risk rather than necessarily to exit."
+    }
+  ],
+  "bullish_conditions": [
+    {
+      "id": "moderate_gains",
+      "name": "Moderate, unextended YTD gains",
+      "indicator": "NASDAQ YTD return vs analog set",
+      "condition": "Year-to-date gains remain moderate and unextended relative to the analog set (2026 is less extended than 2019, 2023, or 2024 were before their peaks).",
+      "rationale": "The level of YTD gains is moderately informative and currently reassuring; less-extended setups have more room before a peak.",
+      "source_quote": "Year to date gains remaining moderate and unextended relative to the analog set."
+    },
+    {
+      "id": "fed_on_hold",
+      "name": "Fed on hold with an optional cut",
+      "indicator": "Fed policy",
+      "condition": "The Fed stays on hold with no hiking impulse and a cut still optionally available.",
+      "rationale": "An on-hold regime removes the tightening sledgehammer that broke 2018 and 2022.",
+      "source_quote": "The Federal Reserve staying on hold with no hiking impulse and a cut still optionally available."
+    },
+    {
+      "id": "recovery_intact",
+      "name": "Recovery momentum intact, broadening participation",
+      "indicator": "Trend momentum and breadth",
+      "condition": "The recovery-momentum profile remains intact with broadening participation.",
+      "rationale": "Intact, broadening recoveries are less vulnerable than narrow, exhausted ones.",
+      "source_quote": "The recovery momentum profile remaining intact with broadening participation."
+    },
+    {
+      "id": "no_catalyst",
+      "name": "No imminent yield/liquidity/credit catalyst",
+      "indicator": "Macro catalyst calendar",
+      "condition": "Absence of any imminent yield, liquidity, or credit catalyst.",
+      "rationale": "Without a catalyst, the rally can continue past midsummer as it did in the regime-matched analogs.",
+      "source_quote": "The absence of any imminent yield, liquidity, or credit catalyst."
+    }
+  ],
+  "seasonality_view": "Reject the calendar as a standalone sell signal. Across 2018-2025 the NASDAQ rarely topped in mid-July and local peaks clustered in late summer; the date alone is a reason to tighten risk, never to exit. The macro backdrop is the strongest discriminator and the shape of the rally is the second — 'the signal worth watching is the macro backdrop and the shape of the rally, not the page of the calendar.'",
+  "position_philosophy": [
+    "Trim into strength and keep a core; never a wholesale or permanent exit.",
+    "The action that consistently succeeded was a trim into summer strength with the discipline to return; the action that consistently failed was a permanent exit during the ascending phase of a deep recovery.",
+    "Gate any further risk reduction to identifiable macro triggers (above all the 10Y yield, then tariffs and the Fed), not to the date.",
+    "Regime fit, not chart resemblance alone, determines which historical analogs to trust."
+  ],
+  "failure_modes": [
+    "Selling mid-recovery while most of the advance is still ahead (the 2020 and 2025 mistake) — the one risk 2026 is least exposed to but not wholly immune from.",
+    "Judging a hypothetical exit by where the year finished rather than by what the investor experienced after stepping aside.",
+    "Liquidating entirely instead of trimming: in 2023 and 2024 the regime-matched selloffs recovered to new highs, penalizing those who exited fully."
+  ],
+  "caveats": "An eight-year, regime-diverse sample offers historical context and a sense of probabilities, not a deterministic forecast. It argues against a mechanical exit on the date and for a measured trim, but cannot exclude a 2018-style outcome; it only observes that the precondition for one, an aggressive tightening shock, is not currently present. Not investment advice."
+}
