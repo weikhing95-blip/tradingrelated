@@ -320,6 +320,7 @@ Watch the deploy logs: you should see the preflight ✅ lines, then
 | `/categories [TICKER [type]]` | View / toggle event types per ticker |
 | `/sources` | Show the active source whitelist |
 | `/show` | Expand items from the last digest |
+| `/test` | Post a sample alert to the channel (publish health-check) |
 
 ## Layout
 
