@@ -71,20 +71,25 @@ def _status_line(event: Event) -> str:
 
 
 def format_alert(event: Event) -> str:
-    """Render a single event as an instant-push / digest-item message (HTML)."""
+    """Render a single event, content-forward (bite-size summary first), HTML.
+
+        {emoji} {summary} ${TICKER}
+        📄 {Tier} — {source}  ·  🔗 {publisher link(s)}
+        [status · ] 🕒 {DD Mon, HH:MM SGT}
+    """
     source = event.source_name or _TIER_NAME[event.tier]
-    lines = [
-        f"{event.type.emoji} {_esc(event.ticker)} · {_esc(event.type.display)}",
-        _esc(event.summary),
-        f"📄 Source: {_TIER_NAME[event.tier]} — {_esc(source)}",
-    ]
+    cashtag = f"${_esc(event.ticker.upper())}"
+    lines = [f"{event.type.emoji} {_esc(event.summary)} {cashtag}"]
+
+    meta = f"📄 {_TIER_NAME[event.tier]} — {_esc(source)}"
     if event.links:
         anchors = " · ".join(link_html(u, event.source_name) for u in event.links)
-        lines.append(f"🔗 {anchors}")
+        meta += f"  ·  🔗 {anchors}"
+    lines.append(meta)
+
     status = _status_line(event)
-    if status:
-        lines.append(status)
-    lines.append(f"🕒 {_sgt_time(event.ts)}")
+    tail = f"{status} · " if status else ""
+    lines.append(f"{tail}🕒 {_sgt_time(event.ts)}")
     return "\n".join(lines)
 
 
@@ -102,14 +107,12 @@ def format_digest(
     for ticker in all_tickers:
         items = by_ticker.get(ticker, [])
         if not items:
-            blocks.append(f"• {_esc(ticker)}: no material events")
+            blocks.append(f"• ${_esc(ticker.upper())}: no material events")
             continue
-        blocks.append(f"• {_esc(ticker)}:")
+        blocks.append(f"• ${_esc(ticker.upper())}")
         for ev in sorted(items, key=lambda e: e.ts):
             status = _status_line(ev)
             tag = f" [{status}]" if status else ""
-            link = f" — {link_html(ev.links[0], ev.source_name)}" if ev.links else ""
-            blocks.append(
-                f"    {ev.type.emoji} {_esc(ev.type.display)}: {_esc(ev.summary)}{link}{tag}"
-            )
+            link = f" — 🔗 {link_html(ev.links[0], ev.source_name)}" if ev.links else ""
+            blocks.append(f"    {ev.type.emoji} {_esc(ev.summary)}{link}{tag}")
     return "\n".join(blocks)

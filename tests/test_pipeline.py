@@ -164,9 +164,20 @@ def test_unconfirmed_label_logic():
 
 
 def test_summarize_verbatim_truncates():
-    long = "x" * 250
-    out = summarize.summarize(long, mode="verbatim")
+    long = "x" * 400
+    out = summarize.choose_summary(long, mode="verbatim")
     assert len(out) <= summarize.MAX_LEN
+
+
+def test_summarize_prefers_content_blurb():
+    headline = "Microsoft raises prices"
+    body = "Microsoft said console storage and memory prices increased by over 2.5x and expects another doubling by 2027."
+    out = summarize.choose_summary(headline, body, mode="verbatim")
+    assert out.startswith("Microsoft said console storage")  # uses the blurb
+    # No blurb → falls back to the headline.
+    assert summarize.choose_summary(headline, "", mode="verbatim") == headline
+    # Trivial/short blurb is ignored in favour of the headline.
+    assert summarize.choose_summary(headline, "ok", mode="verbatim") == headline
 
 
 def test_summarize_faithfulness_guard():
@@ -190,9 +201,9 @@ def test_format_alert_spec():
         confirmed_count=2, unconfirmed=False, sent_mode=SentMode.PENDING, ts=0.0,
     )
     msg = formatter.format_alert(ev)
-    # HTML output: "&" in the event-type label is escaped.
-    assert msg.startswith("🔴 NVDA · Corporate / M&amp;A")
-    assert "📄 Source: Tier 2 — Reuters" in msg
+    # Content-forward: summary first, then $cashtag.
+    assert msg.startswith("🔴 NVIDIA to acquire Run:ai $NVDA")
+    assert "📄 Tier 2 — Reuters" in msg
     assert "cross-confirmed (2)" in msg
     # Links are hyperlinked behind the publisher domain, not raw URLs.
     assert '<a href="https://www.reuters.com/a">reuters.com</a>' in msg

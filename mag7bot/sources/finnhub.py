@@ -35,6 +35,7 @@ def _parse(ticker: str, articles: List[Dict[str, Any]]) -> List[RawItem]:
                 ticker=ticker.upper(),
                 tier=Tier.WIRE,
                 headline=headline.strip(),
+                body=str(a.get("summary", "") or "").strip(),
                 url=url,
                 publisher=str(a.get("source", "")).strip(),
                 published_at=float(a.get("datetime", 0) or 0),

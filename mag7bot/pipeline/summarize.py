@@ -1,13 +1,16 @@
-"""One-line summary generation.
+"""Bite-size summary generation.
 
-Default (``verbatim``): use the source's own headline, truncated to ≤200 chars.
-Zero cost, zero hallucination risk — the safest choice for the verified-link
-promise (PRD §12 Q2).
+Goal: deliver bite-size news — a substantive 1-2 sentence summary of *what
+happened*, not just a headline (see the project goal in the README).
 
-Optional (``llm``): ask Claude for a cleaner ≤200-char one-liner, behind a
-config flag. A source-faithfulness guard rejects any output that introduces a
-number absent from the headline, falling back to verbatim. This reuses the
-repo's ``client.messages.parse(..., output_format=...)`` pattern.
+Two modes:
+  - ``verbatim`` (default, free): use the source's own summary/description blurb
+    (Finnhub ``summary`` / Yahoo ``description``) when it carries real content;
+    otherwise fall back to the headline. No API, no hallucination risk.
+  - ``llm`` (needs ANTHROPIC_API_KEY): Claude compresses the headline + blurb
+    into a neutral 1-2 sentence summary, gated to push items for cost. A
+    source-faithfulness guard rejects any output that introduces a number not
+    present in the source text, falling back to the rich-verbatim text.
 """
 
 from __future__ import annotations
@@ -19,65 +22,88 @@ from pydantic import BaseModel, Field
 
 from ..config import MODEL
 
-MAX_LEN = 200
+MAX_LEN = 320  # bite-size: ~1-3 sentences
+
+_WS = re.compile(r"\s+")
+_NUM = re.compile(r"\d[\d,.]*")
+
+
+def _clean(text: str) -> str:
+    return _WS.sub(" ", text or "").strip()
 
 
 def truncate(text: str, limit: int = MAX_LEN) -> str:
-    text = " ".join(text.split())
+    text = _clean(text)
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
 
 
-class _OneLiner(BaseModel):
-    summary: str = Field(description="A neutral one-line summary, ≤200 characters.")
+def rich_verbatim(headline: str, body: str = "") -> str:
+    """Prefer the source's content blurb over the bare headline when it adds
+    substance; otherwise use the headline. Always verbatim — no invention."""
+    h = _clean(headline)
+    b = _clean(body)
+    if b and len(b) >= 40 and b.lower() != h.lower():
+        return truncate(b)
+    return truncate(h)
+
+
+class _BiteSize(BaseModel):
+    summary: str = Field(description="A neutral 1-2 sentence factual summary, ≤320 chars.")
 
 
 _SYSTEM = (
-    "You compress a news headline into one neutral ≤200-char line. "
-    "Use ONLY facts stated in the headline. Do not add numbers, names, or "
-    "claims that are not already there. No opinion, no speculation."
+    "You compress financial news into one or two neutral, factual sentences "
+    "(≤320 characters) — bite-size, wire-style. Use ONLY facts present in the "
+    "provided headline and text. Do NOT add numbers, names, or claims that are "
+    "not there. No opinion, no investment advice, no hype, no ticker symbols."
 )
 
-_NUM = re.compile(r"\d[\d,.]*")
+
+def _faithful(summary: str, source_text: str) -> bool:
+    """Reject a summary that introduces a number not in the source text."""
+    src_nums = {n.replace(",", "") for n in _NUM.findall(source_text)}
+    return all(n.replace(",", "") in src_nums for n in _NUM.findall(summary))
 
 
-def _faithful(summary: str, headline: str) -> bool:
-    """Reject summaries that introduce a number not present in the headline."""
-    head_nums = {n.replace(",", "") for n in _NUM.findall(headline)}
-    for n in _NUM.findall(summary):
-        if n.replace(",", "") not in head_nums:
-            return False
-    return True
-
-
-def _llm_oneliner(headline: str, client) -> str:
+def _llm_bite_size(headline: str, body: str, client) -> Optional[str]:
+    content = f"Headline: {headline}\n\nArticle text: {body or '(none provided)'}"
     resp = client.messages.parse(
         model=MODEL,
         max_tokens=2000,
         system=_SYSTEM,
-        messages=[{"role": "user", "content": f"Headline: {headline}"}],
-        output_format=_OneLiner,
+        messages=[{"role": "user", "content": content}],
+        output_format=_BiteSize,
     )
     parsed = resp.parsed_output
-    if parsed is None:
-        raise RuntimeError("LLM returned no parseable summary")
-    return parsed.summary
-
-
-def summarize(headline: str, mode: str = "verbatim", client=None) -> str:
-    """Return a ≤200-char summary for an item.
-
-    ``mode='llm'`` requires an Anthropic ``client``; on any error or a
-    faithfulness-guard failure it falls back to the verbatim headline.
-    """
-    verbatim = truncate(headline)
-    if mode != "llm" or client is None:
-        return verbatim
-    try:
-        candidate = _llm_oneliner(headline, client)
-    except Exception:
-        return verbatim
-    if not candidate.strip() or not _faithful(candidate, headline):
-        return verbatim
+    if parsed is None or not parsed.summary.strip():
+        return None
+    candidate = parsed.summary.strip()
+    if not _faithful(candidate, f"{headline} {body}"):
+        return None
     return truncate(candidate)
+
+
+def choose_summary(
+    headline: str,
+    body: str = "",
+    mode: str = "verbatim",
+    client=None,
+    use_llm: bool = False,
+) -> str:
+    """Return the bite-size summary for an item.
+
+    ``use_llm`` lets the caller gate LLM compression to material/push items so
+    digest items don't each cost an API call. Falls back to rich-verbatim on any
+    error, missing client, or a faithfulness-guard failure.
+    """
+    rich = rich_verbatim(headline, body)
+    if mode == "llm" and use_llm and client is not None:
+        try:
+            llm = _llm_bite_size(headline, body, client)
+        except Exception:
+            llm = None
+        if llm:
+            return llm
+    return rich

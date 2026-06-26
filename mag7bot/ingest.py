@@ -117,14 +117,20 @@ def build_events(
 
         event_type = type_of[id(primary)]
         confirmed = len(group)
+        mat = materiality.score(primary, event_type)
+        # LLM compression is gated to push items so the digest doesn't cost an
+        # API call per line; low-materiality items use the free rich-verbatim.
+        summary = summarize.choose_summary(
+            primary.headline, primary.body, cfg.summary_mode, client, use_llm=mat.is_push
+        )
         event = Event(
             ticker=primary.ticker,
             type=event_type,
-            summary=summarize.summarize(primary.headline, cfg.summary_mode, client),
+            summary=summary,
             links=links,
             tier=primary.tier,
             source_name=_source_name(primary),
-            materiality=materiality.score(primary, event_type),
+            materiality=mat,
             confirmed_count=confirmed,
             unconfirmed=materiality.is_unconfirmed(primary.tier, confirmed),
             sent_mode=SentMode.PENDING,
