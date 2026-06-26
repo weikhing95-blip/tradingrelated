@@ -259,6 +259,16 @@ cp .env.example .env        # then fill in the values (see below)
 python -m mag7bot.app
 ```
 
+Before the first live run, verify connectivity without starting the poll loop:
+
+```bash
+python -m mag7bot.app --check    # ✅/❌ for token, channel reachable, can-post
+```
+
+`--check` (and every live launch) runs a preflight: it calls `getMe`, resolves
+the channel, and confirms the bot is a channel admin with "Post Messages" — so
+setup problems surface immediately instead of failing silently mid-loop.
+
 Setup: create a private channel, add the bot (from @BotFather) as an admin with
 post permission, and put the channel id + your numeric Telegram user id in
 `.env`. Required env vars are documented in `.env.example`:

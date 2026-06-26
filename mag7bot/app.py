@@ -53,6 +53,70 @@ async def _dry_run(cfg: Config) -> None:
     print(f"\nSummary: {len(pub.pushed)} instant push(es), 1 digest compiled.")
 
 
+async def preflight(bot, cfg: Config) -> bool:
+    """Verify the bot can do its job before polling: token valid, channel
+    reachable, and the bot can post there. Prints a clear ✅/⚠️/❌ per check
+    and returns True only if nothing is blocking."""
+    ok = True
+    try:
+        me = await bot.get_me()
+        print(f"✅ Token valid — bot is @{me.username} (id {me.id})")
+    except Exception as exc:  # invalid token / network
+        print(f"❌ Token check failed: {exc}")
+        return False
+
+    try:
+        chat = await bot.get_chat(cfg.channel_id)
+        label = getattr(chat, "title", None) or chat.id
+        print(f"✅ Channel reachable — {label} (type {chat.type})")
+    except Exception as exc:
+        print(
+            f"❌ Channel {cfg.channel_id} not reachable: {exc}\n"
+            f"   Check the id is correct and the bot was added to the channel."
+        )
+        return False
+
+    try:
+        member = await bot.get_chat_member(cfg.channel_id, me.id)
+        status = getattr(member, "status", "")
+        can_post = getattr(member, "can_post_messages", True)
+        if status == "administrator" and can_post:
+            print("✅ Bot is a channel admin and can post messages.")
+        elif status == "administrator":
+            print("⚠️ Bot is an admin but 'Post Messages' is OFF — enable it.")
+            ok = False
+        else:
+            print(
+                f"❌ Bot is not a channel admin (status={status!r}). "
+                f"Add it as an admin with 'Post Messages' permission."
+            )
+            ok = False
+    except Exception as exc:
+        print(f"⚠️ Could not verify posting rights: {exc}")
+    return ok
+
+
+async def _post_init(application) -> None:
+    await preflight(application.bot, application.bot_data["cfg"])
+
+
+async def _check(cfg: Config) -> None:
+    from telegram import Bot
+
+    bot = Bot(cfg.telegram_bot_token)
+    try:
+        await bot.initialize()  # PTB validates the token here (a get_me call)
+    except Exception as exc:
+        print(f"❌ Could not connect to Telegram (token or network): {exc}")
+        print("\nPreflight: ISSUES FOUND ❌")
+        return
+    try:
+        ok = await preflight(bot, cfg)
+    finally:
+        await bot.shutdown()
+    print("\nPreflight:", "PASS ✅" if ok else "ISSUES FOUND ❌")
+
+
 def run_live(cfg: Config) -> None:
     from telegram.ext import Application
 
@@ -60,7 +124,9 @@ def run_live(cfg: Config) -> None:
     from .sources import EdgarSource, FinnhubSource
 
     seed.seed(cfg)
-    application = Application.builder().token(cfg.telegram_bot_token).build()
+    application = (
+        Application.builder().token(cfg.telegram_bot_token).post_init(_post_init).build()
+    )
 
     application.bot_data["cfg"] = cfg
     application.bot_data["client"] = _make_client(cfg)
@@ -86,13 +152,19 @@ def main() -> None:
         action="store_true",
         help="Run fixtures through the pipeline and print output (no credentials).",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify token + channel access and exit (no polling).",
+    )
     args = parser.parse_args()
 
-    cfg = load_config(dry_run=args.dry_run)
     if args.dry_run:
-        asyncio.run(_dry_run(cfg))
+        asyncio.run(_dry_run(load_config(dry_run=True)))
+    elif args.check:
+        asyncio.run(_check(load_config(dry_run=False)))
     else:
-        run_live(cfg)
+        run_live(load_config(dry_run=False))
 
 
 if __name__ == "__main__":
