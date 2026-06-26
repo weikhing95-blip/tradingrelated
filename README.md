@@ -210,3 +210,98 @@ Treat this as the first link in a longer chain, not a finished trading system.
 | `distill_signal.py`  | Company distiller (single-stock posts)                        |
 | `sample_writeup.txt` | An example fictional company write-up to test against         |
 | `requirements.txt`   | Dependencies                                                  |
+
+---
+
+# Mag 7 News Bot (Telegram)
+
+A separate product in this repo (`mag7bot/`): a long-running Telegram service
+that delivers **source-verified** news on the Magnificent Seven to a private
+channel, configured privately via a 1:1 DM with the bot. Every alert carries a
+source tier and a canonical link to a primary or reputable source — no social
+media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
+
+```
+SEC EDGAR + Finnhub ─► whitelist ─► classify ─► dedup ─► materiality
+                                                              │
+                              material ──► instant push ──┐   │
+                              low ────────► daily digest ─┴──►  📢 channel
+        owner DM ──► user_id auth gate ──► commands ──► state DB
+```
+
+- **Two surfaces (PRD §3):** the owner DM is the *control plane* (commands,
+  confirmations); the private channel is the *publish plane* (broadcast-only
+  alerts + digests). Commands run **only** in the owner DM and **only** for the
+  stored owner `user_id`; everyone else gets a refusal.
+- **Verified links (PRD §4):** a domain whitelist drops anything outside the
+  approved publisher set. Single-source, non-primary items are labelled
+  `⚠️ unconfirmed`; the same story across sources collapses to one
+  `✅ cross-confirmed (N)` alert (6h window).
+- **Routing (PRD §6, §10):** rule-based materiality sends 8-K / earnings / M&A /
+  legal / management / index changes as instant pushes (critical types override
+  quiet hours 00:00–07:00 SGT); analyst actions and minor news go to the daily
+  digest.
+
+## Try it offline (no credentials)
+
+```bash
+pip install -r requirements.txt
+python -m mag7bot.app --dry-run
+```
+
+This runs canned fixtures through the entire pipeline and prints the formatted
+alerts + a sample digest — proving the verified-link promise with zero API keys.
+
+## Run it live
+
+```bash
+cp .env.example .env        # then fill in the values (see below)
+python -m mag7bot.app
+```
+
+Setup: create a private channel, add the bot (from @BotFather) as an admin with
+post permission, and put the channel id + your numeric Telegram user id in
+`.env`. Required env vars are documented in `.env.example`:
+`TELEGRAM_BOT_TOKEN`, `OWNER_USER_ID`, `CHANNEL_ID`, `FINNHUB_API_KEY`,
+`SEC_EDGAR_USER_AGENT` (SEC requires a contact email), plus optional
+`DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
+`ANTHROPIC_API_KEY` (only for `llm` mode).
+
+## Commands (owner DM only)
+
+| Command | Action |
+|---------|--------|
+| `/watchlist` | Show tracked tickers |
+| `/add TSLA` · `/remove AMZN` | Edit the watchlist |
+| `/digest 0900` | Set the daily digest time (SGT) |
+| `/mute NVDA 24h` | Mute a ticker temporarily (units `m`/`h`/`d`) |
+| `/categories [TICKER [type]]` | View / toggle event types per ticker |
+| `/sources` | Show the active source whitelist |
+| `/show` | Expand items from the last digest |
+
+## Layout
+
+| Path | Purpose |
+| ---- | ------- |
+| `mag7bot/config.py` | Env/secrets, whitelist, SGT tz, tunables |
+| `mag7bot/schemas.py` | `RawItem` / `Event` + enums |
+| `mag7bot/db.py` | SQLite state (companies, feed, watchlist, raw_items, events, seen) |
+| `mag7bot/companies.py` | Mag7 ticker → CIK / name / groups |
+| `mag7bot/sources/` | EDGAR + Finnhub adapters, offline fixtures |
+| `mag7bot/pipeline/` | whitelist · classify · dedup · materiality · summarize · formatter |
+| `mag7bot/ingest.py` | One ingest cycle: fetch → pipeline → events → route |
+| `mag7bot/commands.py` | Telegram command handlers + owner auth gate |
+| `mag7bot/publisher.py` | Channel publish (instant push + digest) |
+| `mag7bot/scheduler.py` | JobQueue polling + daily digest jobs |
+| `mag7bot/app.py` | Entry point (`--dry-run` / live) |
+| `tests/test_pipeline.py` | Unit + end-to-end pipeline tests |
+
+> **Note:** this is decision/alerting infrastructure, not trading. The same
+> caveats as the prototypes above apply before anything touches order flow.
+
+## Tests
+
+```bash
+pip install pytest
+python -m pytest tests/ -q
+```
