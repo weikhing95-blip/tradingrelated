@@ -22,7 +22,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from . import companies, db
 from .config import Config
-from .schemas import EventType
+from .schemas import Event, EventType, Materiality, SentMode, Tier
 
 _DURATION = re.compile(r"^(\d+)\s*([mhd])$", re.IGNORECASE)
 _UNIT_SECONDS = {"m": 60, "h": 3600, "d": 86400}
@@ -68,7 +68,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/mute NVDA 24h — mute a ticker temporarily\n"
         "/categories [TICKER [type]] — view/toggle event types\n"
         "/sources — show the source whitelist\n"
-        "/show — expand items from the last digest"
+        "/show — expand items from the last digest\n"
+        "/test — post a sample alert to the channel (publish health-check)"
     )
 
 
@@ -191,6 +192,39 @@ async def cmd_categories(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 @owner_only
+async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Post a sample alert to the channel to verify the publish path end-to-end."""
+    publisher = context.application.bot_data.get("publisher")
+    if publisher is None:
+        await update.message.reply_text("No publisher configured (dry-run mode?).")
+        return
+    sample = Event(
+        ticker="TEST",
+        type=EventType.NEWS,
+        summary="Channel test — if you can see this in the channel, publishing works.",
+        links=["https://www.sec.gov/cgi-bin/browse-edgar"],
+        tier=Tier.PRIMARY,
+        source_name="Mag 7 News Bot",
+        materiality=Materiality.MATERIAL,
+        confirmed_count=1,
+        unconfirmed=False,
+        sent_mode=SentMode.PUSH,
+        ts=time.time(),
+    )
+    try:
+        await publisher.push(sample)
+    except Exception as exc:
+        await update.message.reply_text(
+            f"❌ Channel post FAILED: {exc}\n"
+            f"Check the bot is an admin of the channel with 'Post Messages'."
+        )
+        return
+    await update.message.reply_text(
+        "✅ Sent a test alert to the channel — go check it appeared there."
+    )
+
+
+@owner_only
 async def cmd_sources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cfg = _cfg(context)
     await update.message.reply_text(
@@ -227,6 +261,7 @@ def register(application: Application) -> None:
         "categories": cmd_categories,
         "sources": cmd_sources,
         "show": cmd_show,
+        "test": cmd_test,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))
