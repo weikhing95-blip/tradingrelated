@@ -120,6 +120,11 @@ class RawItem(BaseModel):
     ticker: str = Field(description="Watchlist ticker this item is about.")
     tier: Tier
     headline: str = Field(description="The item's own headline/title, verbatim.")
+    body: str = Field(
+        default="",
+        description="Source's own summary/description blurb (article lede), if any. "
+        "Used to produce a content summary instead of just the headline.",
+    )
     url: str = Field(description="Canonical link to the primary/wire source.")
     publisher: str = Field(
         default="", description="Resolved publisher domain/name (for whitelist)."

@@ -13,10 +13,18 @@ nothing) if it's unavailable, never crashing the poll loop.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
+from html import unescape
 from typing import Callable, List
 from urllib.parse import urlparse
+
+_TAGS = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str) -> str:
+    return unescape(_TAGS.sub(" ", text or "")).strip()
 
 import httpx
 
@@ -52,6 +60,7 @@ def parse_rss(xml_text: str, ticker: str) -> List[RawItem]:
         title = (el.findtext("title") or "").strip()
         guid = el.findtext("guid") or link
         pub = el.findtext("pubDate") or ""
+        description = _strip_html(el.findtext("description") or "")
         if not link or not title:
             continue
         items.append(
@@ -61,10 +70,11 @@ def parse_rss(xml_text: str, ticker: str) -> List[RawItem]:
                 ticker=ticker.upper(),
                 tier=Tier.WIRE,
                 headline=title,
+                body=description,
                 url=link,
                 publisher=_publisher(link),
                 published_at=_to_epoch(pub),
-                payload={"description": el.findtext("description") or ""},
+                payload={"description": description},
             )
         )
     return items

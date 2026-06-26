@@ -221,6 +221,11 @@ channel, configured privately via a 1:1 DM with the bot. Every alert carries a
 source tier and a canonical link to a primary or reputable source — no social
 media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
 
+> **Goal:** deliver **bite-size, source-verified news** — each alert is a
+> substantive 1–2 sentence summary of *what happened* (not just a headline),
+> tagged with the `$TICKER` and a verified link, so you can skim the feed and
+> trust every item. Summaries are content-forward (see *Summaries* below).
+
 ```
 SEC EDGAR + Finnhub ─► whitelist ─► classify ─► dedup ─► materiality
                                                               │
@@ -276,6 +281,22 @@ post permission, and put the channel id + your numeric Telegram user id in
 `SEC_EDGAR_USER_AGENT` (SEC requires a contact email), plus optional
 `DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
 `ANTHROPIC_API_KEY` (only for `llm` mode).
+
+## Summaries (bite-size)
+
+Each alert leads with a bite-size summary + the `$TICKER` cashtag, then a compact
+verified source/link line and timestamp. Two modes (`SUMMARY_MODE`):
+
+- **`verbatim`** (default, free, no API): uses the source's own
+  summary/description blurb (Finnhub `summary`, Yahoo `description`) when it
+  carries real content — a 1–3 sentence lede — otherwise falls back to the
+  headline. Accurate, zero cost, no hallucination risk.
+- **`llm`** (needs `ANTHROPIC_API_KEY`): Claude compresses the headline + blurb
+  into a neutral 1–2 sentence summary, **gated to instant-push items** so the
+  digest doesn't cost an API call per line. A source-faithfulness guard rejects
+  any summary that introduces a number absent from the source text, falling back
+  to the verbatim blurb. *(Note: the Anthropic API is pay-as-you-go and separate
+  from a Claude Max subscription — Max cannot fund it.)*
 
 ## Optional: Yahoo Finance (breadth source)
 
