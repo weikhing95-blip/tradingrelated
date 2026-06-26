@@ -14,7 +14,7 @@ import pytest
 from mag7bot.config import WHITELIST_DOMAINS, Config, load_config
 from mag7bot.pipeline import classify, dedup, formatter, materiality, summarize, whitelist
 from mag7bot.schemas import EventType, Materiality, RawItem, Tier
-from mag7bot.sources import edgar, finnhub, fixtures
+from mag7bot.sources import edgar, finnhub, fixtures, google_news
 
 
 def _item(headline, ticker="NVDA", publisher="Reuters", url="https://www.reuters.com/x",
@@ -197,6 +197,45 @@ def test_edgar_parser_keeps_only_interesting_forms():
     forms = {i.form_type for i in items}
     assert forms == {"8-K", "10-Q", "4"}  # SC 13G dropped
     assert all(i.url.startswith("https://www.sec.gov/Archives/edgar/data/320193/") for i in items)
+
+
+_GNEWS_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<title>NVIDIA stock - Google News</title>
+<item>
+  <title>Nvidia hits record high on AI demand - Reuters</title>
+  <link>https://news.google.com/rss/articles/CBMiAAA?oc=5</link>
+  <guid isPermaLink="false">CBMiAAA</guid>
+  <pubDate>Wed, 25 Jun 2025 12:00:00 GMT</pubDate>
+  <source url="https://www.reuters.com">Reuters</source>
+</item>
+<item>
+  <title>Random rumor about Nvidia - RandomBlog</title>
+  <link>https://news.google.com/rss/articles/ZZZ?oc=5</link>
+  <guid isPermaLink="false">ZZZ</guid>
+  <pubDate>Wed, 25 Jun 2025 11:00:00 GMT</pubDate>
+  <source url="https://randomblog.example">RandomBlog</source>
+</item>
+</channel></rss>"""
+
+
+def test_google_news_parser_and_whitelist():
+    items = google_news.parse_rss(_GNEWS_RSS, "NVDA")
+    assert len(items) == 2
+    reuters = items[0]
+    # " - Reuters" suffix stripped from the headline.
+    assert reuters.headline == "Nvidia hits record high on AI demand"
+    assert reuters.publisher == "Reuters"
+    assert reuters.ticker == "NVDA"
+    assert reuters.source == "google_news"
+    # Whitelist keeps Reuters, drops the random blog (by publisher name).
+    assert whitelist.is_approved(items[0], WHITELIST_DOMAINS)
+    assert not whitelist.is_approved(items[1], WHITELIST_DOMAINS)
+
+
+def test_google_news_query_overrides():
+    assert "Alphabet" in google_news._query("GOOGL")
+    assert google_news._query("NVDA") == "NVIDIA stock"
 
 
 def test_finnhub_parser_shape():

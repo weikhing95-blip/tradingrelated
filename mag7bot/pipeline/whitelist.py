@@ -27,9 +27,10 @@ def _host(url: str) -> str:
     return host[4:] if host.startswith("www.") else host
 
 
-def is_approved(item: RawItem, whitelist: List[str]) -> bool:
-    publisher = (item.publisher or "").lower()
-    host = _host(item.url)
+def approved(publisher: str, url: str, whitelist: List[str]) -> bool:
+    """Whitelist check on a (publisher name, url) pair."""
+    publisher = (publisher or "").lower()
+    host = _host(url)
     for entry in whitelist:
         e = entry.lower()
         # Domain-style entry: require host equality or a dotted suffix match.
@@ -40,6 +41,10 @@ def is_approved(item: RawItem, whitelist: List[str]) -> bool:
         if e and publisher and e in publisher:
             return True
     return False
+
+
+def is_approved(item: RawItem, whitelist: List[str]) -> bool:
+    return approved(item.publisher, item.url, whitelist)
 
 
 def filter_approved(items: List[RawItem], whitelist: List[str]) -> List[RawItem]:

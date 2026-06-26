@@ -36,6 +36,7 @@ DEDUP_WINDOW_HOURS = 6
 # Polling intervals in seconds (PRD §8 suggests EDGAR 1–2 min, news 2–5 min).
 EDGAR_POLL_SECONDS = 90
 FINNHUB_POLL_SECONDS = 180
+GOOGLE_NEWS_POLL_SECONDS = 300  # only used when ENABLE_GOOGLE_NEWS=true
 
 # Domain whitelist (PRD §4 hard rule). Anything outside this set is dropped.
 # Keys are publisher names/domains as they appear in source `source`/`publisher`
@@ -94,6 +95,9 @@ class Config:
     # Storage
     db_path: Path
 
+    # Sources (optional)
+    enable_google_news: bool = False
+
     # Mode
     dry_run: bool = False
     feed_id: int = 1  # MVP has exactly one feed
@@ -143,6 +147,12 @@ def load_config(dry_run: bool = False) -> Config:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip() or None
     if summary_mode == "llm" and not anthropic_key and not dry_run:
         raise RuntimeError("SUMMARY_MODE=llm requires ANTHROPIC_API_KEY.")
+    enable_google_news = os.environ.get("ENABLE_GOOGLE_NEWS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
     if dry_run:
         return Config(
@@ -158,6 +168,7 @@ def load_config(dry_run: bool = False) -> Config:
             anthropic_api_key=anthropic_key,
             db_path=db_path,
             dry_run=True,
+            enable_google_news=enable_google_news,
         )
 
     return Config(
@@ -171,4 +182,5 @@ def load_config(dry_run: bool = False) -> Config:
         anthropic_api_key=anthropic_key,
         db_path=db_path,
         dry_run=False,
+        enable_google_news=enable_google_news,
     )

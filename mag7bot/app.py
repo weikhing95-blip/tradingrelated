@@ -99,12 +99,16 @@ async def preflight(bot, cfg: Config) -> bool:
 async def _post_init(application) -> None:
     cfg = application.bot_data["cfg"]
     await preflight(application.bot, cfg)
-    # Cold start: establish a baseline so the first run doesn't replay old news.
-    if db.seen_count(cfg.db_path) == 0:
-        sources = list(application.bot_data["sources"].values())
-        primed = await ingest.prime(cfg, sources)
+    # Prime any source with no history yet (cold start, or a newly enabled
+    # source like Google News added to a warm DB): mark its current items as
+    # seen WITHOUT alerting, so enabling it doesn't replay days-old news.
+    sources = application.bot_data["sources"]
+    fresh = [s for name, s in sources.items() if db.seen_count_for_source(cfg.db_path, name) == 0]
+    if fresh:
+        primed = await ingest.prime(cfg, fresh)
+        names = ", ".join(s.name for s in fresh)
         print(
-            f"🟢 Cold start — primed {primed} pre-existing item(s) as seen "
+            f"🟢 Primed {primed} pre-existing item(s) as seen across [{names}] "
             f"(no alerts). New events from now on will be pushed/digested."
         )
 
@@ -130,7 +134,7 @@ def run_live(cfg: Config) -> None:
     from telegram.ext import Application
 
     from . import commands, scheduler
-    from .sources import EdgarSource, FinnhubSource
+    from .sources import EdgarSource, FinnhubSource, GoogleNewsSource
 
     seed.seed(cfg)
     application = (
@@ -142,10 +146,14 @@ def run_live(cfg: Config) -> None:
     application.bot_data["publisher"] = publisher_mod.ChannelPublisher(
         application.bot, cfg.channel_id
     )
-    application.bot_data["sources"] = {
+    sources = {
         "edgar": EdgarSource(cfg.sec_edgar_user_agent),
         "finnhub": FinnhubSource(cfg.finnhub_api_key),
     }
+    if cfg.enable_google_news:
+        sources["google_news"] = GoogleNewsSource(cfg.whitelist)
+        print("📰 Google News source ENABLED (whitelist-filtered aggregator).")
+    application.bot_data["sources"] = sources
 
     commands.register(application)
     scheduler.setup_jobs(application)
