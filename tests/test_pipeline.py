@@ -232,6 +232,36 @@ def test_build_events_end_to_end(cfg):
     assert ma.confirmed_count == 2 and len(ma.links) == 2
 
 
+class _FakeSource:
+    """A Source that returns canned items, for testing prime()."""
+
+    name = "finnhub"
+
+    def __init__(self, items):
+        self._items = items
+
+    async def fetch_new(self, tickers, is_seen):
+        return [i for i in self._items if not is_seen(i.source, i.source_item_id)]
+
+
+def test_prime_marks_seen_without_alerting(cfg):
+    import asyncio
+
+    from mag7bot import db, ingest
+
+    items = [i for i in fixtures.sample_raw_items(1_700_000_000.0) if i.source == "finnhub"]
+    src = _FakeSource(items)
+
+    assert db.seen_count(cfg.db_path) == 0
+    primed = asyncio.run(ingest.prime(cfg, [src]))
+    assert primed == len(items)
+    assert db.seen_count(cfg.db_path) == len(items)
+    # No events were created by priming.
+    assert db.recent_events(cfg.db_path, cfg.feed_id, "NVDA", 0) == []
+    # A second prime finds nothing new (idempotent).
+    assert asyncio.run(ingest.prime(cfg, [_FakeSource(items)])) == 0
+
+
 def test_build_events_cross_confirm_updates_not_duplicates(cfg):
     from mag7bot import db, ingest
 

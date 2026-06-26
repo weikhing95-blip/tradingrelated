@@ -277,6 +277,31 @@ post permission, and put the channel id + your numeric Telegram user id in
 `DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
 `ANTHROPIC_API_KEY` (only for `llm` mode).
 
+## Deploy on Railway
+
+The repo ships a `railway.json` (Nixpacks build, `python -m mag7bot.app` start
+command, restart-on-failure) and pins Python via `.python-version`. The bot is
+a **worker** — it has no HTTP port; don't add a domain or healthcheck.
+
+1. **New Project → Deploy from GitHub Repo** → pick this repo. Select the branch
+   you want (merge the PR to your default branch first, or point Railway at the
+   feature branch).
+2. **Variables** — add the env vars (same as `.env.example`): `TELEGRAM_BOT_TOKEN`,
+   `OWNER_USER_ID`, `CHANNEL_ID`, `FINNHUB_API_KEY`, `SEC_EDGAR_USER_AGENT`, plus
+   optional `DIGEST_TIME_SGT` / `SUMMARY_MODE` / `ANTHROPIC_API_KEY`. No `.env`
+   file needed — Railway injects these into the environment.
+3. **Add a Volume** (critical) — Railway's filesystem is ephemeral, and the
+   `seen` table is what prevents duplicate alerts across restarts. Attach a
+   volume (e.g. mount path `/data`) and set `DB_PATH=/data/mag7bot.db` so state
+   survives redeploys. Without this, every redeploy re-fetches recent news.
+4. **Deploy.** On the very first boot the bot runs a one-time *cold-start prime*:
+   it marks currently-available items as seen **without alerting**, so you don't
+   get a flood of days-old news — only genuinely new events fire after that.
+
+Watch the deploy logs: you should see the preflight ✅ lines, then
+`🟢 Cold start — primed N pre-existing item(s)`. After that, DM the bot
+`/watchlist` and wait for the first live alert in the channel.
+
 ## Commands (owner DM only)
 
 | Command | Action |

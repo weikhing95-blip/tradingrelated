@@ -97,7 +97,16 @@ async def preflight(bot, cfg: Config) -> bool:
 
 
 async def _post_init(application) -> None:
-    await preflight(application.bot, application.bot_data["cfg"])
+    cfg = application.bot_data["cfg"]
+    await preflight(application.bot, cfg)
+    # Cold start: establish a baseline so the first run doesn't replay old news.
+    if db.seen_count(cfg.db_path) == 0:
+        sources = list(application.bot_data["sources"].values())
+        primed = await ingest.prime(cfg, sources)
+        print(
+            f"🟢 Cold start — primed {primed} pre-existing item(s) as seen "
+            f"(no alerts). New events from now on will be pushed/digested."
+        )
 
 
 async def _check(cfg: Config) -> None:
