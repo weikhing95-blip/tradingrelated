@@ -276,12 +276,21 @@ async def cmd_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not events:
         await update.message.reply_text("No digest items in the last 24h.")
         return
+    import html as _html
+
+    from .pipeline.formatter import link_html
+
     lines = ["🗂 Last digest items:"]
     for ev in events:
-        link = ev.links[0] if ev.links else "(no link)"
-        lines.append(f"  {ev.type.emoji} {ev.ticker} {ev.type.display}: {ev.summary}")
+        link = link_html(ev.links[0], ev.source_name) if ev.links else "(no link)"
+        lines.append(
+            f"  {ev.type.emoji} {_html.escape(ev.ticker)} "
+            f"{_html.escape(ev.type.display)}: {_html.escape(ev.summary, quote=False)}"
+        )
         lines.append(f"     🔗 {link}")
-    await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode="HTML", disable_web_page_preview=True
+    )
 
 
 def _get_client(context: ContextTypes.DEFAULT_TYPE):

@@ -3,19 +3,22 @@
     {emoji} {TICKER} · {EVENT TYPE}
     {one-line summary, ≤200 chars}
     📄 Source: {tier — source name}
-    🔗 {canonical link}  [· 🔗 {second link if cross-confirmed}]
+    🔗 {publisher}  [· {publisher} if cross-confirmed]   ← hyperlinked
     [⚠️ unconfirmed | ✅ cross-confirmed (N)]
     🕒 {DD Mon, HH:MM SGT}
 
-Also compiles the daily digest (PRD F7), which lists watched tickers with no
-events as "no material events". Output is plain text (Telegram-safe); links are
-sent as-is so Telegram auto-links them.
+Messages are emitted as **Telegram HTML** (publishers send with parse_mode=HTML)
+so links are hyperlinked behind a short label (the publisher domain, or the
+source name when the URL is an aggregator redirect) instead of dumping long raw
+URLs. All dynamic text is HTML-escaped.
 """
 
 from __future__ import annotations
 
+import html
 from datetime import datetime
 from typing import Iterable, List
+from urllib.parse import urlparse
 
 from ..config import SGT
 from ..schemas import Event, Tier
@@ -25,6 +28,34 @@ _TIER_NAME = {
     Tier.WIRE: "Tier 2",
     Tier.AGGREGATED: "Tier 3",
 }
+
+
+def _esc(text: str) -> str:
+    """Escape visible text for Telegram HTML (leave quotes as-is)."""
+    return html.escape(text, quote=False)
+
+
+def _host(url: str) -> str:
+    try:
+        h = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+    return h[4:] if h.startswith("www.") else h
+
+
+def _anchor_label(url: str, source_name: str = "") -> str:
+    """A short, human label for a link. Prefer the publisher domain; for
+    aggregator redirect URLs (news.google.com) fall back to the source name so
+    we never show the ugly wrapper."""
+    host = _host(url)
+    if host and "google." not in host:
+        return host
+    return source_name or "link"
+
+
+def link_html(url: str, source_name: str = "") -> str:
+    label = _anchor_label(url, source_name)
+    return f'<a href="{html.escape(url, quote=True)}">{_esc(label)}</a>'
 
 
 def _sgt_time(ts: float) -> str:
@@ -40,16 +71,16 @@ def _status_line(event: Event) -> str:
 
 
 def format_alert(event: Event) -> str:
-    """Render a single event as an instant-push / digest-item message."""
+    """Render a single event as an instant-push / digest-item message (HTML)."""
     source = event.source_name or _TIER_NAME[event.tier]
     lines = [
-        f"{event.type.emoji} {event.ticker} · {event.type.display}",
-        event.summary,
-        f"📄 Source: {_TIER_NAME[event.tier]} — {source}",
+        f"{event.type.emoji} {_esc(event.ticker)} · {_esc(event.type.display)}",
+        _esc(event.summary),
+        f"📄 Source: {_TIER_NAME[event.tier]} — {_esc(source)}",
     ]
-    links = " · ".join(f"🔗 {url}" for url in event.links) if event.links else ""
-    if links:
-        lines.append(links)
+    if event.links:
+        anchors = " · ".join(link_html(u, event.source_name) for u in event.links)
+        lines.append(f"🔗 {anchors}")
     status = _status_line(event)
     if status:
         lines.append(status)
@@ -60,7 +91,7 @@ def format_alert(event: Event) -> str:
 def format_digest(
     events: Iterable[Event], all_tickers: List[str], now: float
 ) -> str:
-    """Compile the daily digest (PRD F7)."""
+    """Compile the daily digest (PRD F7), HTML-formatted."""
     events = list(events)
     by_ticker: dict[str, List[Event]] = {t: [] for t in all_tickers}
     for ev in events:
@@ -71,13 +102,14 @@ def format_digest(
     for ticker in all_tickers:
         items = by_ticker.get(ticker, [])
         if not items:
-            blocks.append(f"• {ticker}: no material events")
+            blocks.append(f"• {_esc(ticker)}: no material events")
             continue
-        blocks.append(f"• {ticker}:")
+        blocks.append(f"• {_esc(ticker)}:")
         for ev in sorted(items, key=lambda e: e.ts):
             status = _status_line(ev)
             tag = f" [{status}]" if status else ""
-            blocks.append(f"    {ev.type.emoji} {ev.type.display}: {ev.summary}{tag}")
-            if ev.links:
-                blocks.append(f"      🔗 {ev.links[0]}")
+            link = f" — {link_html(ev.links[0], ev.source_name)}" if ev.links else ""
+            blocks.append(
+                f"    {ev.type.emoji} {_esc(ev.type.display)}: {_esc(ev.summary)}{link}{tag}"
+            )
     return "\n".join(blocks)
