@@ -43,6 +43,18 @@ def test_whitelist_host_suffix_not_spoofable():
     assert not whitelist.is_approved(spoof, WHITELIST_DOMAINS)
 
 
+def test_whitelist_diversified_additions():
+    # Vetted additions pass — by URL host and by publisher name (Google News).
+    assert whitelist.approved("Barron's", "https://www.barrons.com/articles/x", WHITELIST_DOMAINS)
+    assert whitelist.approved("Nikkei Asia", "https://news.google.com/rss/articles/Z", WHITELIST_DOMAINS)
+    assert whitelist.approved("Morningstar", "https://www.morningstar.com/news/x", WHITELIST_DOMAINS)
+    # Rejected listicle/opinion sources stay out.
+    assert not whitelist.approved("The Motley Fool", "https://www.fool.com/investing/x", WHITELIST_DOMAINS)
+    assert not whitelist.approved("Benzinga", "https://www.benzinga.com/x", WHITELIST_DOMAINS)
+    # nasdaq.com intentionally not whitelisted (syndication noise).
+    assert not whitelist.approved("", "https://www.nasdaq.com/articles/x", WHITELIST_DOMAINS)
+
+
 def test_whitelist_wsj_not_mangled():
     # Regression: a www-prefix strip bug once turned wsj.com into sj.com.
     wsj = _item("z", publisher="", url="https://www.wsj.com/articles/a")
@@ -289,15 +301,15 @@ def test_effective_whitelist_includes_db_extras(cfg):
     from mag7bot import db, ingest
 
     base = set(ingest.effective_whitelist(cfg))
-    assert "barrons.com" not in base
-    db.add_whitelist_domain(cfg.db_path, "barrons.com", "Barron's", "tier2")
+    assert "exampletimes.com" not in base
+    db.add_whitelist_domain(cfg.db_path, "exampletimes.com", "Example Times", "tier2")
     after = ingest.effective_whitelist(cfg)
-    assert "barrons.com" in after
+    assert "exampletimes.com" in after
     # And it now passes the whitelist for an item from that publisher.
-    item = _item("x", publisher="Barron's", url="https://www.barrons.com/articles/a")
+    item = _item("x", publisher="Example Times", url="https://www.exampletimes.com/articles/a")
     assert whitelist.approved(item.publisher, item.url, after)
-    assert db.remove_whitelist_domain(cfg.db_path, "barrons.com")
-    assert "barrons.com" not in ingest.effective_whitelist(cfg)
+    assert db.remove_whitelist_domain(cfg.db_path, "exampletimes.com")
+    assert "exampletimes.com" not in ingest.effective_whitelist(cfg)
 
 
 def test_finnhub_parser_shape():
