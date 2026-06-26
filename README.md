@@ -277,6 +277,26 @@ post permission, and put the channel id + your numeric Telegram user id in
 `DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
 `ANTHROPIC_API_KEY` (only for `llm` mode).
 
+## Optional: Google News (breadth aggregator)
+
+Set `ENABLE_GOOGLE_NEWS=true` to add the undocumented Google News RSS feed as a
+supplementary Tier-2 source (PRD §4, F11). It's **off by default** and safe to
+toggle on/off anytime — it's a breadth safety net behind the dedicated APIs, not
+a backbone.
+
+Because Google News aggregates *everyone*, two safeguards apply automatically:
+the **domain whitelist is re-applied** to each item's actual publisher (from the
+feed's `<source>` element), and the `news.google.com` redirect links are
+**best-effort resolved** to the canonical publisher URL. Items from
+non-whitelisted publishers are dropped; overlapping stories **cross-confirm**
+with Finnhub via the existing dedup rather than duplicating. Enabling it on an
+already-running bot won't replay old news — the new source is primed silently on
+the next start (same cold-start logic as a fresh deploy).
+
+> Caveats (per the PRD): the feed is undocumented and can change without notice,
+> and it's marked personal/non-commercial — fine for a single owner reading
+> privately, revisit before any shared/commercial use.
+
 ## Deploy on Railway
 
 The repo ships a **`Dockerfile`** (the build path Railway uses when present) plus

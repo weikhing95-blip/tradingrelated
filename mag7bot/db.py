@@ -263,6 +263,15 @@ def seen_count(path: Path) -> int:
         return int(conn.execute("SELECT COUNT(*) AS n FROM seen").fetchone()["n"])
 
 
+def seen_count_for_source(path: Path, source: str) -> int:
+    with connect(path) as conn:
+        return int(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM seen WHERE source = ?", (source,)
+            ).fetchone()["n"]
+        )
+
+
 def mark_seen(path: Path, source: str, item_id: str, ticker: str) -> None:
     with connect(path) as conn:
         conn.execute(

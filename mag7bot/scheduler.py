@@ -17,7 +17,12 @@ from datetime import time as dtime
 from telegram.ext import Application, ContextTypes
 
 from . import ingest, publisher as publisher_mod
-from .config import EDGAR_POLL_SECONDS, FINNHUB_POLL_SECONDS, SGT
+from .config import (
+    EDGAR_POLL_SECONDS,
+    FINNHUB_POLL_SECONDS,
+    GOOGLE_NEWS_POLL_SECONDS,
+    SGT,
+)
 
 DIGEST_JOB = "daily_digest"
 
@@ -39,6 +44,10 @@ async def poll_edgar(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def poll_finnhub(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "finnhub")
+
+
+async def poll_google_news(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "google_news")
 
 
 async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -64,6 +73,13 @@ def setup_jobs(application: Application) -> None:
     jq.run_repeating(
         poll_finnhub, interval=FINNHUB_POLL_SECONDS, first=20, name="poll_finnhub"
     )
+    if "google_news" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_google_news,
+            interval=GOOGLE_NEWS_POLL_SECONDS,
+            first=40,
+            name="poll_google_news",
+        )
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(
         application, hhmm

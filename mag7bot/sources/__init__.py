@@ -12,5 +12,6 @@ from __future__ import annotations
 from .base import Source
 from .edgar import EdgarSource
 from .finnhub import FinnhubSource
+from .google_news import GoogleNewsSource
 
-__all__ = ["Source", "EdgarSource", "FinnhubSource"]
+__all__ = ["Source", "EdgarSource", "FinnhubSource", "GoogleNewsSource"]
