@@ -80,6 +80,45 @@ WHITELIST_DOMAINS: List[str] = [
     "globenewswire.com",
     "prnewswire",
     "prnewswire.com",
+    # --- Diversified additions (vetted by the source-research agent) ---
+    # Established financial / international press (Tier 2). Both domain and a
+    # name token are listed so items match whether the feed gives a URL host
+    # (Finnhub/Yahoo) or just a publisher name (Google News <source>).
+    "barrons.com",
+    "barron",
+    "investors.com",
+    "investor's business daily",
+    "nikkei.com",
+    "asia.nikkei.com",
+    "nikkei",
+    "economist.com",
+    "the economist",
+    "axios.com",
+    "axios",
+    "bbc.com",
+    "bbc",
+    "theguardian.com",
+    "the guardian",
+    "caixinglobal.com",
+    "caixin",
+    "scmp.com",
+    "south china morning post",
+    # Analyst / data / ratings providers (Tier 3, primary for ratings actions).
+    "morningstar.com",
+    "morningstar",
+    "spglobal.com",
+    "s&p global",
+    "moodys.com",
+    "moody",
+    "fitchratings.com",
+    "fitch ratings",
+    # Primary / regulatory / exchange (Tier 1, low-volume but authoritative).
+    "nyse.com",
+    "federalreserve.gov",
+    "home.treasury.gov",
+    "treasury.gov",
+    # NB: nasdaq.com deliberately excluded — it republishes syndicated
+    # listicle/opinion content under its own domain (would reintroduce noise).
 ]
 
 
