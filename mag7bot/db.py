@@ -258,6 +258,11 @@ def is_seen(path: Path, source: str, item_id: str) -> bool:
         )
 
 
+def seen_count(path: Path) -> int:
+    with connect(path) as conn:
+        return int(conn.execute("SELECT COUNT(*) AS n FROM seen").fetchone()["n"])
+
+
 def mark_seen(path: Path, source: str, item_id: str, ticker: str) -> None:
     with connect(path) as conn:
         conn.execute(

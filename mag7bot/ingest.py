@@ -119,6 +119,25 @@ def build_events(
     return events
 
 
+async def prime(cfg: Config, sources: Sequence[Source]) -> int:
+    """Cold-start baseline: mark all currently-available items as seen WITHOUT
+    alerting, so the first deploy doesn't flood the channel with days-old news.
+    Only genuinely new items (arriving after this) will then trigger alerts."""
+    tickers = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
+    if not tickers:
+        return 0
+
+    def _is_seen(source: str, item_id: str) -> bool:
+        return db.is_seen(cfg.db_path, source, item_id)
+
+    count = 0
+    for source in sources:
+        for item in await source.fetch_new(tickers, _is_seen):
+            db.mark_seen(cfg.db_path, item.source, item.source_item_id, item.ticker)
+            count += 1
+    return count
+
+
 async def run_cycle(
     cfg: Config,
     sources: Sequence[Source],

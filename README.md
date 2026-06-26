@@ -259,6 +259,16 @@ cp .env.example .env        # then fill in the values (see below)
 python -m mag7bot.app
 ```
 
+Before the first live run, verify connectivity without starting the poll loop:
+
+```bash
+python -m mag7bot.app --check    # ✅/❌ for token, channel reachable, can-post
+```
+
+`--check` (and every live launch) runs a preflight: it calls `getMe`, resolves
+the channel, and confirms the bot is a channel admin with "Post Messages" — so
+setup problems surface immediately instead of failing silently mid-loop.
+
 Setup: create a private channel, add the bot (from @BotFather) as an admin with
 post permission, and put the channel id + your numeric Telegram user id in
 `.env`. Required env vars are documented in `.env.example`:
@@ -266,6 +276,38 @@ post permission, and put the channel id + your numeric Telegram user id in
 `SEC_EDGAR_USER_AGENT` (SEC requires a contact email), plus optional
 `DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
 `ANTHROPIC_API_KEY` (only for `llm` mode).
+
+## Deploy on Railway
+
+The repo ships a **`Dockerfile`** (the build path Railway uses when present) plus
+a `railway.json` (Dockerfile builder, restart-on-failure). The bot is a
+**worker** — it has no HTTP port; don't add a domain or healthcheck.
+
+> Railway's auto-detect builder (Railpack/Nixpacks) fails on this repo with
+> *"No start command detected"* because the entrypoint is a package
+> (`mag7bot/app.py`), not a root `main.py` or a web framework. The Dockerfile
+> avoids that entirely. If you'd rather use the auto-detect builder, set a
+> **Custom Start Command** of `python -m mag7bot.app` in the service settings
+> (a root `main.py` shim is also included as a fallback).
+
+1. **New Project → Deploy from GitHub Repo** → pick this repo. Select the branch
+   you want (merge the PR to your default branch first, or point Railway at the
+   feature branch).
+2. **Variables** — add the env vars (same as `.env.example`): `TELEGRAM_BOT_TOKEN`,
+   `OWNER_USER_ID`, `CHANNEL_ID`, `FINNHUB_API_KEY`, `SEC_EDGAR_USER_AGENT`, plus
+   optional `DIGEST_TIME_SGT` / `SUMMARY_MODE` / `ANTHROPIC_API_KEY`. No `.env`
+   file needed — Railway injects these into the environment.
+3. **Add a Volume** (critical) — Railway's filesystem is ephemeral, and the
+   `seen` table is what prevents duplicate alerts across restarts. Attach a
+   volume (e.g. mount path `/data`) and set `DB_PATH=/data/mag7bot.db` so state
+   survives redeploys. Without this, every redeploy re-fetches recent news.
+4. **Deploy.** On the very first boot the bot runs a one-time *cold-start prime*:
+   it marks currently-available items as seen **without alerting**, so you don't
+   get a flood of days-old news — only genuinely new events fire after that.
+
+Watch the deploy logs: you should see the preflight ✅ lines, then
+`🟢 Cold start — primed N pre-existing item(s)`. After that, DM the bot
+`/watchlist` and wait for the first live alert in the channel.
 
 ## Commands (owner DM only)
 
