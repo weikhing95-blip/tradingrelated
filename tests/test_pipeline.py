@@ -1,0 +1,248 @@
+"""Unit tests for the Mag 7 News Bot pipeline stages.
+
+These cover the pure, deterministic logic — whitelist, classification, dedup,
+materiality, formatting and the source parsers — plus an end-to-end
+``build_events`` run against a temporary SQLite DB. No network, no Telegram.
+"""
+
+from __future__ import annotations
+
+import time
+
+import pytest
+
+from mag7bot.config import WHITELIST_DOMAINS, Config, load_config
+from mag7bot.pipeline import classify, dedup, formatter, materiality, summarize, whitelist
+from mag7bot.schemas import EventType, Materiality, RawItem, Tier
+from mag7bot.sources import edgar, finnhub, fixtures
+
+
+def _item(headline, ticker="NVDA", publisher="Reuters", url="https://www.reuters.com/x",
+          source="finnhub", form_type=None, tier=Tier.WIRE, ts=0.0):
+    return RawItem(
+        source=source, source_item_id=str(abs(hash(headline)) % 10_000),
+        ticker=ticker, tier=tier, headline=headline, url=url, publisher=publisher,
+        published_at=ts, form_type=form_type,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# whitelist                                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_whitelist_keeps_approved_and_drops_unknown():
+    keep = _item("x", publisher="Reuters", url="https://www.reuters.com/a")
+    drop = _item("y", publisher="RandomBlog", url="https://randomblog.example/z")
+    assert whitelist.is_approved(keep, WHITELIST_DOMAINS)
+    assert not whitelist.is_approved(drop, WHITELIST_DOMAINS)
+
+
+def test_whitelist_host_suffix_not_spoofable():
+    spoof = _item("z", publisher="", url="https://evil-reuters.com.attacker.net/a")
+    assert not whitelist.is_approved(spoof, WHITELIST_DOMAINS)
+
+
+def test_whitelist_wsj_not_mangled():
+    # Regression: a www-prefix strip bug once turned wsj.com into sj.com.
+    wsj = _item("z", publisher="", url="https://www.wsj.com/articles/a")
+    assert whitelist.is_approved(wsj, WHITELIST_DOMAINS)
+
+
+# --------------------------------------------------------------------------- #
+# classify                                                                      #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "headline,expected",
+    [
+        ("NVIDIA to acquire startup in $700M deal", EventType.MA),
+        ("Apple faces antitrust probe in Europe", EventType.LEGAL_REGULATORY),
+        ("Tesla CFO steps down, names successor", EventType.MANAGEMENT_CHANGE),
+        ("Morgan Stanley upgrades NVDA to overweight", EventType.ANALYST),
+        ("Microsoft unveils new Surface lineup", EventType.PRODUCT_LAUNCH),
+        ("Some generic market chatter", EventType.NEWS),
+    ],
+)
+def test_classify_news_keywords(headline, expected):
+    assert classify.classify(_item(headline)) == expected
+
+
+def test_classify_edgar_forms():
+    eightk = _item("Apple files 8-K — Results of Operations", source="edgar",
+                   form_type="8-K", tier=Tier.PRIMARY)
+    assert classify.classify(eightk) == EventType.EARNINGS
+    tenq = _item("Apple files 10-Q", source="edgar", form_type="10-Q", tier=Tier.PRIMARY)
+    assert classify.classify(tenq) == EventType.EARNINGS
+    form4 = _item("Insider transaction", source="edgar", form_type="4", tier=Tier.PRIMARY)
+    assert classify.classify(form4) == EventType.SEC_FILING
+
+
+def test_classify_word_boundary():
+    # "issues" must not match the "sues" legal keyword.
+    assert classify.classify(_item("Company issues new guidance")) != EventType.LEGAL_REGULATORY
+
+
+# --------------------------------------------------------------------------- #
+# dedup                                                                         #
+# --------------------------------------------------------------------------- #
+
+
+def test_dedup_collapses_near_duplicates():
+    a = _item("NVIDIA to acquire AI startup Run:ai in $700M deal", url="https://www.reuters.com/a")
+    b = _item("Nvidia to acquire AI startup Run:ai in a $700 million deal", url="https://www.bloomberg.com/b")
+    groups = dedup.collapse([a, b])
+    assert len(groups) == 1
+    assert len(groups[0]) == 2
+
+
+def test_dedup_keeps_distinct_stories_apart():
+    a = _item("NVIDIA upgraded by Morgan Stanley")
+    b = _item("NVIDIA faces antitrust probe in EU")
+    groups = dedup.collapse([a, b])
+    assert len(groups) == 2
+
+
+def test_dedup_does_not_cross_tickers():
+    a = _item("acquires startup", ticker="NVDA")
+    b = _item("acquires startup", ticker="AAPL")
+    groups = dedup.collapse([a, b])
+    assert len(groups) == 2
+
+
+# --------------------------------------------------------------------------- #
+# materiality                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_materiality_routing():
+    assert materiality.score(_item("x"), EventType.MA) == Materiality.CRITICAL
+    assert materiality.score(_item("x"), EventType.EARNINGS) == Materiality.CRITICAL
+    assert materiality.score(_item("x"), EventType.LEGAL_REGULATORY) == Materiality.MATERIAL
+    assert materiality.score(_item("x"), EventType.ANALYST) == Materiality.LOW
+
+
+def test_materiality_form4_demoted():
+    f4 = _item("insider sale", source="edgar", form_type="4", tier=Tier.PRIMARY)
+    assert materiality.score(f4, EventType.SEC_FILING) == Materiality.LOW
+
+
+def test_materiality_halt_is_critical():
+    halt = _item("Trading halt on NVDA shares")
+    assert materiality.score(halt, EventType.NEWS) == Materiality.CRITICAL
+
+
+def test_unconfirmed_label_logic():
+    assert materiality.is_unconfirmed(Tier.WIRE, 1) is True
+    assert materiality.is_unconfirmed(Tier.WIRE, 2) is False
+    assert materiality.is_unconfirmed(Tier.PRIMARY, 1) is False
+
+
+# --------------------------------------------------------------------------- #
+# summarize                                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_summarize_verbatim_truncates():
+    long = "x" * 250
+    out = summarize.summarize(long, mode="verbatim")
+    assert len(out) <= summarize.MAX_LEN
+
+
+def test_summarize_faithfulness_guard():
+    # Summary inventing a number absent from the headline is rejected.
+    assert not summarize._faithful("Deal worth $999M", "Company makes an acquisition")
+    assert summarize._faithful("Company makes acquisition", "Company makes an acquisition deal")
+
+
+# --------------------------------------------------------------------------- #
+# formatter                                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_format_alert_spec():
+    from mag7bot.schemas import Event, SentMode
+
+    ev = Event(
+        ticker="NVDA", type=EventType.MA, summary="NVIDIA to acquire Run:ai",
+        links=["https://www.reuters.com/a", "https://www.bloomberg.com/b"],
+        tier=Tier.WIRE, source_name="Reuters", materiality=Materiality.CRITICAL,
+        confirmed_count=2, unconfirmed=False, sent_mode=SentMode.PENDING, ts=0.0,
+    )
+    msg = format_alert_lines(ev)
+    assert msg[0].startswith("🔴 NVDA · Corporate / M&A")
+    assert "📄 Source: Tier 2 — Reuters" in msg
+    assert any("cross-confirmed (2)" in line for line in msg)
+    assert any(line.startswith("🔗") for line in msg)
+
+
+def format_alert_lines(ev):
+    return formatter.format_alert(ev).splitlines()
+
+
+def test_format_digest_lists_empty_tickers():
+    text = formatter.format_digest([], ["AAPL", "NVDA"], now=0.0)
+    assert "AAPL: no material events" in text
+    assert "NVDA: no material events" in text
+
+
+# --------------------------------------------------------------------------- #
+# source parsers                                                                #
+# --------------------------------------------------------------------------- #
+
+
+def test_edgar_parser_keeps_only_interesting_forms():
+    items = edgar._parse("AAPL", "0000320193", fixtures.EDGAR_AAPL_SUBMISSIONS)
+    forms = {i.form_type for i in items}
+    assert forms == {"8-K", "10-Q", "4"}  # SC 13G dropped
+    assert all(i.url.startswith("https://www.sec.gov/Archives/edgar/data/320193/") for i in items)
+
+
+def test_finnhub_parser_shape():
+    items = finnhub._parse("NVDA", fixtures.FINNHUB_NVDA)
+    assert len(items) == 4
+    assert all(i.source == "finnhub" and i.url and i.headline for i in items)
+
+
+# --------------------------------------------------------------------------- #
+# end-to-end build_events                                                       #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture()
+def cfg(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    c = load_config(dry_run=True)
+    from mag7bot import seed
+    seed.seed(c)
+    return c
+
+
+def test_build_events_end_to_end(cfg):
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0  # fixed, deterministic
+    events = ingest.build_events(cfg, fixtures.sample_raw_items(now), now)
+    # 6 raw → 1 dropped (whitelist) → Run:ai pair collapses → 4 events.
+    assert len(events) == 4
+    by_type = {e.type for e in events}
+    assert EventType.MA in by_type and EventType.EARNINGS in by_type
+    ma = next(e for e in events if e.type == EventType.MA)
+    assert ma.confirmed_count == 2 and len(ma.links) == 2
+
+
+def test_build_events_cross_confirm_updates_not_duplicates(cfg):
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    first = _item("NVIDIA to acquire Run:ai in deal", url="https://www.reuters.com/a", ts=now)
+    ingest.build_events(cfg, [first], now)
+    # Same story from another wire shortly after → updates, no new event.
+    second = _item("Nvidia to acquire Run:ai in a deal", url="https://www.bloomberg.com/b", ts=now + 60)
+    new = ingest.build_events(cfg, [second], now + 60)
+    assert new == []  # collapsed into the existing event
+    recent = db.recent_events(cfg.db_path, cfg.feed_id, "NVDA", now - 3600)
+    assert len(recent) == 1
+    assert recent[0].confirmed_count == 2
+    assert len(recent[0].links) == 2
