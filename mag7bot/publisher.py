@@ -36,12 +36,16 @@ class ChannelPublisher:
         await self._bot.send_message(
             chat_id=self._channel_id,
             text=format_alert(event),
-            disable_web_page_preview=False,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
         )
 
     async def send_digest(self, text: str) -> None:
         await self._bot.send_message(
-            chat_id=self._channel_id, text=text, disable_web_page_preview=True
+            chat_id=self._channel_id,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
         )
 
 

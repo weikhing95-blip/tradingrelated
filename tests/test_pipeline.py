@@ -170,15 +170,30 @@ def test_format_alert_spec():
         tier=Tier.WIRE, source_name="Reuters", materiality=Materiality.CRITICAL,
         confirmed_count=2, unconfirmed=False, sent_mode=SentMode.PENDING, ts=0.0,
     )
-    msg = format_alert_lines(ev)
-    assert msg[0].startswith("🔴 NVDA · Corporate / M&A")
+    msg = formatter.format_alert(ev)
+    # HTML output: "&" in the event-type label is escaped.
+    assert msg.startswith("🔴 NVDA · Corporate / M&amp;A")
     assert "📄 Source: Tier 2 — Reuters" in msg
-    assert any("cross-confirmed (2)" in line for line in msg)
-    assert any(line.startswith("🔗") for line in msg)
+    assert "cross-confirmed (2)" in msg
+    # Links are hyperlinked behind the publisher domain, not raw URLs.
+    assert '<a href="https://www.reuters.com/a">reuters.com</a>' in msg
+    assert '<a href="https://www.bloomberg.com/b">bloomberg.com</a>' in msg
+    assert "🔗 https://" not in msg  # no raw URL dumped inline
 
 
-def format_alert_lines(ev):
-    return formatter.format_alert(ev).splitlines()
+def test_format_alert_google_link_uses_source_name():
+    from mag7bot.schemas import Event, SentMode
+
+    ev = Event(
+        ticker="AAPL", type=EventType.NEWS, summary="Apple news",
+        links=["https://news.google.com/rss/articles/CBMiAAA?oc=5"],
+        tier=Tier.WIRE, source_name="Yahoo Finance", materiality=Materiality.LOW,
+        confirmed_count=1, unconfirmed=True, sent_mode=SentMode.PENDING, ts=0.0,
+    )
+    msg = formatter.format_alert(ev)
+    # The visible label is the publisher name, not the ugly google host.
+    assert ">Yahoo Finance</a>" in msg
+    assert ">news.google.com<" not in msg  # never shown as visible text
 
 
 def test_format_digest_lists_empty_tickers():
