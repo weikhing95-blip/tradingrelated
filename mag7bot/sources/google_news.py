@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
-from typing import List
+from typing import Callable, List
 from urllib.parse import urlparse
 
 import httpx
@@ -105,8 +105,12 @@ class GoogleNewsSource(Source):
     name = "google_news"
     tier = Tier.WIRE
 
-    def __init__(self, allow_whitelist: List[str], timeout: float = 12.0) -> None:
-        self._whitelist = allow_whitelist
+    def __init__(
+        self, whitelist_provider: Callable[[], List[str]], timeout: float = 12.0
+    ) -> None:
+        # A provider (not a static list) so owner-approved publishers added at
+        # runtime are honoured without a restart.
+        self._whitelist_provider = whitelist_provider
         self._timeout = timeout
         self._headers = {"User-Agent": "Mozilla/5.0 (compatible; mag7bot/1.0)"}
 
@@ -125,6 +129,7 @@ class GoogleNewsSource(Source):
 
     async def fetch_new(self, tickers: List[str], is_seen: SeenFn) -> List[RawItem]:
         out: List[RawItem] = []
+        allow = self._whitelist_provider()
         async with httpx.AsyncClient(
             headers=self._headers, timeout=self._timeout, follow_redirects=True
         ) as client:
@@ -146,7 +151,7 @@ class GoogleNewsSource(Source):
                         continue
                     # F11(a): drop items whose publisher isn't whitelisted —
                     # also bounds how many redirects we resolve.
-                    if not whitelist.is_approved(item, self._whitelist):
+                    if not whitelist.is_approved(item, allow):
                         continue
                     # F11(b): resolve the redirect to the canonical publisher.
                     item.url = await self._resolve(client, item.url)

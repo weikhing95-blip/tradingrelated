@@ -134,7 +134,7 @@ def run_live(cfg: Config) -> None:
     from telegram.ext import Application
 
     from . import commands, scheduler
-    from .sources import EdgarSource, FinnhubSource, GoogleNewsSource
+    from .sources import EdgarSource, FinnhubSource, GoogleNewsSource, YahooNewsSource
 
     seed.seed(cfg)
     application = (
@@ -146,13 +146,18 @@ def run_live(cfg: Config) -> None:
     application.bot_data["publisher"] = publisher_mod.ChannelPublisher(
         application.bot, cfg.channel_id
     )
+    # Live whitelist = config defaults + owner-approved additions (DB).
+    whitelist_provider = lambda: ingest.effective_whitelist(cfg)  # noqa: E731
     sources = {
         "edgar": EdgarSource(cfg.sec_edgar_user_agent),
         "finnhub": FinnhubSource(cfg.finnhub_api_key),
     }
     if cfg.enable_google_news:
-        sources["google_news"] = GoogleNewsSource(cfg.whitelist)
+        sources["google_news"] = GoogleNewsSource(whitelist_provider)
         print("📰 Google News source ENABLED (whitelist-filtered aggregator).")
+    if cfg.enable_yahoo_news:
+        sources["yahoo_news"] = YahooNewsSource(whitelist_provider)
+        print("📰 Yahoo Finance source ENABLED (whitelist-filtered).")
     application.bot_data["sources"] = sources
 
     commands.register(application)

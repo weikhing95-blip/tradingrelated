@@ -13,5 +13,12 @@ from .base import Source
 from .edgar import EdgarSource
 from .finnhub import FinnhubSource
 from .google_news import GoogleNewsSource
+from .yahoo_news import YahooNewsSource
 
-__all__ = ["Source", "EdgarSource", "FinnhubSource", "GoogleNewsSource"]
+__all__ = [
+    "Source",
+    "EdgarSource",
+    "FinnhubSource",
+    "GoogleNewsSource",
+    "YahooNewsSource",
+]

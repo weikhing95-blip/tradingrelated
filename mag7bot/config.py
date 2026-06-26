@@ -37,6 +37,7 @@ DEDUP_WINDOW_HOURS = 6
 EDGAR_POLL_SECONDS = 90
 FINNHUB_POLL_SECONDS = 180
 GOOGLE_NEWS_POLL_SECONDS = 300  # only used when ENABLE_GOOGLE_NEWS=true
+YAHOO_NEWS_POLL_SECONDS = 240  # only used when ENABLE_YAHOO_NEWS=true
 
 # Domain whitelist (PRD §4 hard rule). Anything outside this set is dropped.
 # Keys are publisher names/domains as they appear in source `source`/`publisher`
@@ -61,6 +62,10 @@ WHITELIST_DOMAINS: List[str] = [
     "ft",
     "ft.com",
     "financial times",
+    # Reputable finance press / aggregators
+    "finance.yahoo.com",
+    "yahoo.com",
+    "yahoo finance",
     # Tier 3 — aggregated events / analyst feeds
     "marketwatch",
     "marketwatch.com",
@@ -97,6 +102,7 @@ class Config:
 
     # Sources (optional)
     enable_google_news: bool = False
+    enable_yahoo_news: bool = False
 
     # Mode
     dry_run: bool = False
@@ -147,12 +153,9 @@ def load_config(dry_run: bool = False) -> Config:
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip() or None
     if summary_mode == "llm" and not anthropic_key and not dry_run:
         raise RuntimeError("SUMMARY_MODE=llm requires ANTHROPIC_API_KEY.")
-    enable_google_news = os.environ.get("ENABLE_GOOGLE_NEWS", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    _truthy = ("1", "true", "yes", "on")
+    enable_google_news = os.environ.get("ENABLE_GOOGLE_NEWS", "").strip().lower() in _truthy
+    enable_yahoo_news = os.environ.get("ENABLE_YAHOO_NEWS", "").strip().lower() in _truthy
 
     if dry_run:
         return Config(
@@ -169,6 +172,7 @@ def load_config(dry_run: bool = False) -> Config:
             db_path=db_path,
             dry_run=True,
             enable_google_news=enable_google_news,
+            enable_yahoo_news=enable_yahoo_news,
         )
 
     return Config(
@@ -183,4 +187,5 @@ def load_config(dry_run: bool = False) -> Config:
         db_path=db_path,
         dry_run=False,
         enable_google_news=enable_google_news,
+        enable_yahoo_news=enable_yahoo_news,
     )

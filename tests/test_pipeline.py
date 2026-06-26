@@ -14,7 +14,7 @@ import pytest
 from mag7bot.config import WHITELIST_DOMAINS, Config, load_config
 from mag7bot.pipeline import classify, dedup, formatter, materiality, summarize, whitelist
 from mag7bot.schemas import EventType, Materiality, RawItem, Tier
-from mag7bot.sources import edgar, finnhub, fixtures, google_news
+from mag7bot.sources import edgar, finnhub, fixtures, google_news, yahoo_news
 
 
 def _item(headline, ticker="NVDA", publisher="Reuters", url="https://www.reuters.com/x",
@@ -236,6 +236,46 @@ def test_google_news_parser_and_whitelist():
 def test_google_news_query_overrides():
     assert "Alphabet" in google_news._query("GOOGL")
     assert google_news._query("NVDA") == "NVIDIA stock"
+
+
+_YAHOO_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<title>Yahoo! Finance: AAPL News</title>
+<item>
+  <title>Apple unveils new iPhone lineup</title>
+  <link>https://finance.yahoo.com/news/apple-unveils-iphone-123456.html</link>
+  <guid>https://finance.yahoo.com/news/apple-unveils-iphone-123456.html</guid>
+  <pubDate>Wed, 25 Jun 2025 09:30:00 GMT</pubDate>
+  <description>Apple announced ...</description>
+</item>
+</channel></rss>"""
+
+
+def test_yahoo_news_parser():
+    items = yahoo_news.parse_rss(_YAHOO_RSS, "AAPL")
+    assert len(items) == 1
+    it = items[0]
+    assert it.source == "yahoo_news"
+    assert it.ticker == "AAPL"
+    assert it.headline == "Apple unveils new iPhone lineup"
+    assert "finance.yahoo.com" in it.publisher
+    # Yahoo Finance is whitelisted by default.
+    assert whitelist.is_approved(it, WHITELIST_DOMAINS)
+
+
+def test_effective_whitelist_includes_db_extras(cfg):
+    from mag7bot import db, ingest
+
+    base = set(ingest.effective_whitelist(cfg))
+    assert "barrons.com" not in base
+    db.add_whitelist_domain(cfg.db_path, "barrons.com", "Barron's", "tier2")
+    after = ingest.effective_whitelist(cfg)
+    assert "barrons.com" in after
+    # And it now passes the whitelist for an item from that publisher.
+    item = _item("x", publisher="Barron's", url="https://www.barrons.com/articles/a")
+    assert whitelist.approved(item.publisher, item.url, after)
+    assert db.remove_whitelist_domain(cfg.db_path, "barrons.com")
+    assert "barrons.com" not in ingest.effective_whitelist(cfg)
 
 
 def test_finnhub_parser_shape():

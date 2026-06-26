@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS seen (
     first_seen_at REAL NOT NULL,
     PRIMARY KEY (source, item_id)
 );
+
+-- Owner-approved publishers added at runtime (on top of the config defaults).
+CREATE TABLE IF NOT EXISTS whitelist_extra (
+    domain   TEXT PRIMARY KEY,   -- canonical domain, lowercase
+    name     TEXT NOT NULL DEFAULT '',
+    tier     TEXT NOT NULL DEFAULT 'tier2',
+    added_at REAL NOT NULL
+);
 """
 
 
@@ -386,6 +394,43 @@ def mark_event_sent(path: Path, event_id: int, mode: SentMode) -> None:
         conn.execute(
             "UPDATE events SET sent_mode = ? WHERE id = ?", (mode.value, event_id)
         )
+
+
+# --------------------------------------------------------------------------- #
+# whitelist_extra (owner-approved publishers)                                   #
+# --------------------------------------------------------------------------- #
+
+
+def add_whitelist_domain(path: Path, domain: str, name: str, tier: str) -> None:
+    with connect(path) as conn:
+        conn.execute(
+            """INSERT INTO whitelist_extra (domain, name, tier, added_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(domain) DO UPDATE SET name=excluded.name, tier=excluded.tier""",
+            (domain.strip().lower(), name, tier, time.time()),
+        )
+
+
+def remove_whitelist_domain(path: Path, domain: str) -> bool:
+    with connect(path) as conn:
+        cur = conn.execute(
+            "DELETE FROM whitelist_extra WHERE domain = ?", (domain.strip().lower(),)
+        )
+        return cur.rowcount > 0
+
+
+def get_whitelist_extra(path: Path) -> List[str]:
+    """Just the domains, for combining with the config whitelist."""
+    with connect(path) as conn:
+        rows = conn.execute("SELECT domain FROM whitelist_extra ORDER BY domain").fetchall()
+    return [r["domain"] for r in rows]
+
+
+def list_whitelist_extra(path: Path) -> List[sqlite3.Row]:
+    with connect(path) as conn:
+        return conn.execute(
+            "SELECT * FROM whitelist_extra ORDER BY tier, domain"
+        ).fetchall()
 
 
 def last_digest_events(path: Path, feed_id: int, since_ts: float) -> List[Event]:
