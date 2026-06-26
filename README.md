@@ -279,9 +279,16 @@ post permission, and put the channel id + your numeric Telegram user id in
 
 ## Deploy on Railway
 
-The repo ships a `railway.json` (Nixpacks build, `python -m mag7bot.app` start
-command, restart-on-failure) and pins Python via `.python-version`. The bot is
-a **worker** — it has no HTTP port; don't add a domain or healthcheck.
+The repo ships a **`Dockerfile`** (the build path Railway uses when present) plus
+a `railway.json` (Dockerfile builder, restart-on-failure). The bot is a
+**worker** — it has no HTTP port; don't add a domain or healthcheck.
+
+> Railway's auto-detect builder (Railpack/Nixpacks) fails on this repo with
+> *"No start command detected"* because the entrypoint is a package
+> (`mag7bot/app.py`), not a root `main.py` or a web framework. The Dockerfile
+> avoids that entirely. If you'd rather use the auto-detect builder, set a
+> **Custom Start Command** of `python -m mag7bot.app` in the service settings
+> (a root `main.py` shim is also included as a fallback).
 
 1. **New Project → Deploy from GitHub Repo** → pick this repo. Select the branch
    you want (merge the PR to your default branch first, or point Railway at the
