@@ -84,6 +84,13 @@ def test_classify_word_boundary():
     assert classify.classify(_item("Company issues new guidance")) != EventType.LEGAL_REGULATORY
 
 
+def test_classify_listicle_not_ma():
+    # "best stocks to buy" listicles must not be misread as M&A.
+    assert classify.classify(_item("Why Alphabet is one of the best stocks to buy now")) != EventType.MA
+    # Genuine M&A still classifies.
+    assert classify.classify(_item("Nvidia to acquire startup Run:ai")) == EventType.MA
+
+
 # --------------------------------------------------------------------------- #
 # dedup                                                                         #
 # --------------------------------------------------------------------------- #
@@ -354,6 +361,30 @@ def test_prime_marks_seen_without_alerting(cfg):
     assert db.recent_events(cfg.db_path, cfg.feed_id, "NVDA", 0) == []
     # A second prime finds nothing new (idempotent).
     assert asyncio.run(ingest.prime(cfg, [_FakeSource(items)])) == 0
+
+
+def test_build_events_drops_stale_news_keeps_fresh(cfg):
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0
+    fresh = _item("Nvidia to acquire Run:ai", url="https://www.reuters.com/a", ts=now - 3600)
+    stale = _item("Nvidia old listicle news", url="https://www.cnbc.com/b", ts=now - 10 * 86400)
+    events = ingest.build_events(cfg, [fresh, stale], now)
+    summaries = {e.summary for e in events}
+    assert "Nvidia to acquire Run:ai" in summaries
+    assert "Nvidia old listicle news" not in summaries  # >48h old → dropped
+
+
+def test_build_events_keeps_stale_tier1_filing(cfg):
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0
+    old_filing = _item(
+        "Apple files 8-K", ticker="AAPL", source="edgar", form_type="8-K",
+        tier=Tier.PRIMARY, url="https://www.sec.gov/x", ts=now - 10 * 86400,
+    )
+    events = ingest.build_events(cfg, [old_filing], now)
+    assert len(events) == 1  # Tier-1 filings are exempt from the recency guard
 
 
 def test_build_events_cross_confirm_updates_not_duplicates(cfg):

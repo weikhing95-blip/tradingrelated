@@ -33,6 +33,10 @@ QUIET_END_HOUR = 7
 # Dedup window — collapse same story across sources within this many hours.
 DEDUP_WINDOW_HOURS = 6
 
+# Recency guard — never surface items older than this (aggregators resurface
+# evergreen listicles/opinion with old publish dates). Tier-1 filings are exempt.
+MAX_ITEM_AGE_HOURS = 48
+
 # Polling intervals in seconds (PRD §8 suggests EDGAR 1–2 min, news 2–5 min).
 EDGAR_POLL_SECONDS = 90
 FINNHUB_POLL_SECONDS = 180

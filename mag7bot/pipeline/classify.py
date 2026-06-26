@@ -23,8 +23,9 @@ _EARNINGS_FORM_HINTS = ("results of operations", "earnings", "financial results"
 _KEYWORD_RULES: List[Tuple[EventType, Tuple[str, ...]]] = [
     (
         EventType.MA,
+        # NB: avoid bare "to buy" — it matches listicles like "best stocks to buy".
         ("acquire", "acquisition", "merger", "merges", "buyout", "takeover",
-         "to buy", "stake in", "divest", "spin off", "spinoff"),
+         "to acquire", "acquires", "stake in", "divest", "spin off", "spinoff"),
     ),
     (
         EventType.LEGAL_REGULATORY,
