@@ -20,7 +20,7 @@ from telegram import Update
 from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from . import companies, db
+from . import companies, db, ingest, research
 from .config import Config
 from .schemas import Event, EventType, Materiality, SentMode, Tier
 
@@ -69,7 +69,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/categories [TICKER [type]] — view/toggle event types\n"
         "/sources — show the source whitelist\n"
         "/show — expand items from the last digest\n"
-        "/test — post a sample alert to the channel (publish health-check)"
+        "/test — post a sample alert to the channel (publish health-check)\n"
+        "/diag — live-probe each news source and report counts\n"
+        "/suggest_sources — agent proposes reputable sources to add\n"
+        "/add_source <domain> [name] [tier] · /remove_source <domain>"
     )
 
 
@@ -227,9 +230,42 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @owner_only
 async def cmd_sources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cfg = _cfg(context)
+    extra = db.list_whitelist_extra(cfg.db_path)
+    lines = ["✅ Active source whitelist (PRD §4):", "  " + "\n  ".join(cfg.whitelist)]
+    if extra:
+        lines.append("\n➕ Owner-approved additions:")
+        for r in extra:
+            lines.append(f"  {r['domain']} ({r['tier']})")
+    await update.message.reply_text("\n".join(lines))
+
+
+@owner_only
+async def cmd_diag(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Live-fetch from each configured source and report counts — answers
+    'are the sources returning anything?' without waiting for an alert."""
+    cfg = _cfg(context)
+    sources = context.application.bot_data.get("sources", {})
+    if not sources:
+        await update.message.reply_text("No sources configured (dry-run mode?).")
+        return
+    tickers = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
     await update.message.reply_text(
-        "✅ Active source whitelist (PRD §4):\n  " + "\n  ".join(cfg.whitelist)
+        f"🔎 Probing {len(sources)} source(s) across {len(tickers)} tickers "
+        f"(live fetch, ignoring 'seen')…"
     )
+    lines = ["🔎 Source check:"]
+    for name, src in sources.items():
+        try:
+            items = await src.fetch_new(tickers, lambda *_: False)
+            sample = items[0].headline[:80] if items else "—"
+            lines.append(f"  • {name}: {len(items)} available · e.g. “{sample}”")
+        except Exception as exc:  # surface the error rather than hiding it
+            lines.append(f"  • {name}: ❌ {type(exc).__name__}: {exc}")
+    lines.append(
+        "\nNote: 'available' counts everything currently in each feed; only NEW, "
+        "material items push to the channel."
+    )
+    await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
 
 
 @owner_only
@@ -248,6 +284,89 @@ async def cmd_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
 
 
+def _get_client(context: ContextTypes.DEFAULT_TYPE):
+    """Reuse the summariser's client, or create one if an API key is present."""
+    client = context.application.bot_data.get("client")
+    if client is not None:
+        return client
+    cfg = _cfg(context)
+    if not cfg.anthropic_api_key:
+        return None
+    import anthropic
+
+    return anthropic.Anthropic()
+
+
+@owner_only
+async def cmd_suggest_sources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ask the research agent to propose reputable publishers for your review."""
+    cfg = _cfg(context)
+    client = _get_client(context)
+    if client is None:
+        await update.message.reply_text(
+            "The source-research agent needs an Anthropic API key. "
+            "Set ANTHROPIC_API_KEY (and redeploy) to use /suggest_sources."
+        )
+        return
+    await update.message.reply_text("🧭 Researching reputable sources… (a few seconds)")
+    watchlist = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
+    current = ingest.effective_whitelist(cfg)
+    try:
+        result = research.suggest_sources(client, watchlist, current)
+    except Exception as exc:
+        await update.message.reply_text(f"Agent error: {exc}")
+        return
+    # Filter out anything already whitelisted (defensive).
+    have = {d.lower() for d in current}
+    fresh = [s for s in result.suggestions if s.domain.lower() not in have]
+    if not fresh:
+        await update.message.reply_text("No new sources to suggest — whitelist looks complete.")
+        return
+    lines = ["🧭 Suggested sources (review, then /add_source <domain>):", ""]
+    for s in fresh:
+        lines.append(f"• {s.name} — {s.domain}  (Tier {s.tier})")
+        lines.append(f"   {s.rationale}")
+        if s.caution:
+            lines.append(f"   ⚠️ {s.caution}")
+        lines.append(f"   → /add_source {s.domain} {s.name} {s.tier}")
+        lines.append("")
+    await update.message.reply_text("\n".join(lines), disable_web_page_preview=True)
+
+
+@owner_only
+async def cmd_add_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg = _cfg(context)
+    if not context.args:
+        await update.message.reply_text("Usage: /add_source <domain> [name] [tier 1-3]")
+        return
+    domain = context.args[0].strip().lower()
+    rest = context.args[1:]
+    tier = "tier2"
+    if rest and rest[-1] in ("1", "2", "3"):
+        tier = f"tier{rest[-1]}"
+        rest = rest[:-1]
+    name = " ".join(rest)
+    db.add_whitelist_domain(cfg.db_path, domain, name, tier)
+    await update.message.reply_text(
+        f"✅ Added {domain} ({tier}) to the whitelist. It takes effect on the next poll."
+    )
+
+
+@owner_only
+async def cmd_remove_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    cfg = _cfg(context)
+    if not context.args:
+        await update.message.reply_text("Usage: /remove_source <domain>")
+        return
+    domain = context.args[0].strip().lower()
+    removed = db.remove_whitelist_domain(cfg.db_path, domain)
+    await update.message.reply_text(
+        f"Removed {domain} from the approved additions."
+        if removed
+        else f"{domain} is not an owner-added source (config defaults can't be removed here)."
+    )
+
+
 def register(application: Application) -> None:
     """Attach all command handlers to the application."""
     handlers = {
@@ -262,6 +381,10 @@ def register(application: Application) -> None:
         "sources": cmd_sources,
         "show": cmd_show,
         "test": cmd_test,
+        "diag": cmd_diag,
+        "suggest_sources": cmd_suggest_sources,
+        "add_source": cmd_add_source,
+        "remove_source": cmd_remove_source,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))

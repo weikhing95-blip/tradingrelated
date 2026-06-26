@@ -22,6 +22,7 @@ from .config import (
     FINNHUB_POLL_SECONDS,
     GOOGLE_NEWS_POLL_SECONDS,
     SGT,
+    YAHOO_NEWS_POLL_SECONDS,
 )
 
 DIGEST_JOB = "daily_digest"
@@ -48,6 +49,10 @@ async def poll_finnhub(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def poll_google_news(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "google_news")
+
+
+async def poll_yahoo_news(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "yahoo_news")
 
 
 async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -79,6 +84,13 @@ def setup_jobs(application: Application) -> None:
             interval=GOOGLE_NEWS_POLL_SECONDS,
             first=40,
             name="poll_google_news",
+        )
+    if "yahoo_news" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_yahoo_news,
+            interval=YAHOO_NEWS_POLL_SECONDS,
+            first=50,
+            name="poll_yahoo_news",
         )
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(

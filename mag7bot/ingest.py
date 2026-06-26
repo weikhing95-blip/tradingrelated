@@ -31,6 +31,11 @@ def _dedup_links(urls: Sequence[str]) -> List[str]:
     return out
 
 
+def effective_whitelist(cfg: Config) -> List[str]:
+    """Config defaults plus any owner-approved publishers added at runtime."""
+    return list(cfg.whitelist) + db.get_whitelist_extra(cfg.db_path)
+
+
 def _source_name(item: RawItem) -> str:
     if item.source == "edgar":
         return "SEC EDGAR"
@@ -74,7 +79,7 @@ def build_events(
     (merged links, bumped count) and produce no new event — so a story is
     alerted once, not re-sent each time another wire picks it up (PRD F4).
     """
-    approved = whitelist.filter_approved(raw_items, cfg.whitelist)
+    approved = whitelist.filter_approved(raw_items, effective_whitelist(cfg))
     for item in approved:
         db.insert_raw_item(cfg.db_path, item)
 

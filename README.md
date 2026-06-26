@@ -277,6 +277,27 @@ post permission, and put the channel id + your numeric Telegram user id in
 `DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
 `ANTHROPIC_API_KEY` (only for `llm` mode).
 
+## Optional: Yahoo Finance (breadth source)
+
+Set `ENABLE_YAHOO_NEWS=true` to add Yahoo Finance's per-ticker headline RSS as a
+supplementary Tier-2 source. Off by default; toggle anytime. Links are direct
+(no redirect wrapper) and the query is per-ticker, so it's lower-noise than
+Google News; it's whitelist-filtered and dedup cross-confirms with Finnhub.
+*(The Yahoo RSS endpoint is undocumented and historically flaky — the source
+fails soft if it's unavailable.)*
+
+## Source-research agent + extensible whitelist
+
+`/suggest_sources` runs a Claude agent that proposes reputable publishers (with a
+suggested tier + rationale) **not already** whitelisted — you stay in control and
+approve with `/add_source <domain>`. Approved domains persist in the DB and take
+effect on the next poll (no redeploy). `/sources` shows config defaults plus your
+additions; `/remove_source <domain>` removes an addition. The agent needs
+`ANTHROPIC_API_KEY` set (independent of `SUMMARY_MODE`).
+
+Use `/diag` anytime to live-probe every configured source and see how many items
+each returns — handy for confirming connectivity when the channel is quiet.
+
 ## Optional: Google News (breadth aggregator)
 
 Set `ENABLE_GOOGLE_NEWS=true` to add the undocumented Google News RSS feed as a
@@ -338,9 +359,12 @@ Watch the deploy logs: you should see the preflight ✅ lines, then
 | `/digest 0900` | Set the daily digest time (SGT) |
 | `/mute NVDA 24h` | Mute a ticker temporarily (units `m`/`h`/`d`) |
 | `/categories [TICKER [type]]` | View / toggle event types per ticker |
-| `/sources` | Show the active source whitelist |
+| `/sources` | Show the active source whitelist (config + approved additions) |
 | `/show` | Expand items from the last digest |
 | `/test` | Post a sample alert to the channel (publish health-check) |
+| `/diag` | Live-probe each news source and report how many items it returns |
+| `/suggest_sources` | Agent proposes reputable publishers to add (needs `ANTHROPIC_API_KEY`) |
+| `/add_source <domain> [name] [tier]` · `/remove_source <domain>` | Approve / remove a whitelist publisher |
 
 ## Layout
 
