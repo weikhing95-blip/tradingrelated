@@ -15,9 +15,9 @@ from datetime import datetime
 from typing import List, Optional, Sequence
 
 from . import db
-from .config import DEDUP_WINDOW_HOURS, SGT, Config
+from .config import DEDUP_WINDOW_HOURS, MAX_ITEM_AGE_HOURS, SGT, Config
 from .pipeline import classify, dedup, materiality, summarize, whitelist
-from .schemas import Event, Materiality, RawItem, SentMode
+from .schemas import Event, Materiality, RawItem, SentMode, Tier
 from .sources.base import Source
 
 
@@ -80,6 +80,17 @@ def build_events(
     alerted once, not re-sent each time another wire picks it up (PRD F4).
     """
     approved = whitelist.filter_approved(raw_items, effective_whitelist(cfg))
+
+    # Recency guard: drop stale articles (aggregators resurface old listicles
+    # with weeks-old publish dates). Tier-1 filings and items with an unknown
+    # date are kept.
+    age_cutoff = now - MAX_ITEM_AGE_HOURS * 3600
+    approved = [
+        it
+        for it in approved
+        if it.tier == Tier.PRIMARY or not it.published_at or it.published_at >= age_cutoff
+    ]
+
     for item in approved:
         db.insert_raw_item(cfg.db_path, item)
 
