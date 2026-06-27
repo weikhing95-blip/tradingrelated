@@ -282,6 +282,25 @@ post permission, and put the channel id + your numeric Telegram user id in
 `DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
 `ANTHROPIC_API_KEY` (only for `llm` mode).
 
+## Coverage: macro releases + earnings snippets
+
+Beyond per-company news, the bot covers what moves these names:
+
+- **Economic releases (`macro`, needs `FRED_API_KEY`):** polls FRED for **Core
+  CPI, CPI, Core PCE, PCE, PPI, and initial jobless claims** and posts on each
+  new release, e.g. `📊 US Core CPI (May 2026) — +0.3% MoM, +3.2% YoY`. These are
+  economy-wide (no ticker), Tier 1, treated as critical (instant push). Off
+  until `FRED_API_KEY` is set (free from fredaccount.stlouisfed.org).
+- **Earnings snippets (`earnings`, uses the Finnhub key):** posts actuals vs
+  estimates when a watched name reports, e.g.
+  `$AAPL 🟢 Q2 2026 earnings — EPS $1.52 vs $1.50 est ✅ beat · Rev $94.8B vs $94.5B est ✅ beat`.
+- **Executive commentary:** CEO/CFO interviews and earnings-call remarks in the
+  news feeds are detected (🎙) and pushed. Best-effort — depends on the wires
+  covering it.
+
+Structured sources (EDGAR, earnings, macro) bypass the publisher whitelist and
+the company-relevance gate — they're trusted data, not free-text news.
+
 ## Summaries (bite-size)
 
 Each alert leads with a bite-size summary + the `$TICKER` cashtag, then a compact

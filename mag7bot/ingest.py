@@ -79,7 +79,17 @@ def build_events(
     (merged links, bumped count) and produce no new event — so a story is
     alerted once, not re-sent each time another wire picks it up (PRD F4).
     """
-    approved = whitelist.filter_approved(raw_items, effective_whitelist(cfg))
+    # Free-text news sources go through the whitelist + company-specific
+    # relevance gate; structured sources (EDGAR filings, earnings actuals, macro
+    # releases) are trusted data and bypass both.
+    news = [it for it in raw_items if it.source in relevance.NEWS_SOURCES]
+    structured = [it for it in raw_items if it.source not in relevance.NEWS_SOURCES]
+
+    wl = effective_whitelist(cfg)
+    news = whitelist.filter_approved(news, wl)
+    news = [it for it in news if relevance.is_company_specific(it.headline, it.ticker)]
+
+    approved = structured + news
 
     # Recency guard: drop stale articles (aggregators resurface old listicles
     # with weeks-old publish dates). Tier-1 filings and items with an unknown
@@ -89,16 +99,6 @@ def build_events(
         it
         for it in approved
         if it.tier == Tier.PRIMARY or not it.published_at or it.published_at >= age_cutoff
-    ]
-
-    # Company-specific relevance: for free-text news sources, require the company
-    # to be the headline subject (not just mentioned) and drop opinion/listicles.
-    # EDGAR / earnings / macro are structured sources and skip this gate.
-    approved = [
-        it
-        for it in approved
-        if it.source not in relevance.NEWS_SOURCES
-        or relevance.is_company_specific(it.headline, it.ticker)
     ]
 
     for item in approved:
