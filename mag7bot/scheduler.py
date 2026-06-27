@@ -18,9 +18,11 @@ from telegram.ext import Application, ContextTypes
 
 from . import ingest, publisher as publisher_mod
 from .config import (
+    EARNINGS_POLL_SECONDS,
     EDGAR_POLL_SECONDS,
     FINNHUB_POLL_SECONDS,
     GOOGLE_NEWS_POLL_SECONDS,
+    MACRO_POLL_SECONDS,
     SGT,
     YAHOO_NEWS_POLL_SECONDS,
 )
@@ -53,6 +55,14 @@ async def poll_google_news(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def poll_yahoo_news(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "yahoo_news")
+
+
+async def poll_earnings(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "earnings")
+
+
+async def poll_macro(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "macro")
 
 
 async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -91,6 +101,14 @@ def setup_jobs(application: Application) -> None:
             interval=YAHOO_NEWS_POLL_SECONDS,
             first=50,
             name="poll_yahoo_news",
+        )
+    if "earnings" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_earnings, interval=EARNINGS_POLL_SECONDS, first=60, name="poll_earnings"
+        )
+    if "macro" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_macro, interval=MACRO_POLL_SECONDS, first=70, name="poll_macro"
         )
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(

@@ -34,8 +34,10 @@ _KEYWORD_RULES: List[Tuple[EventType, Tuple[str, ...]]] = [
     ),
     (
         EventType.MANAGEMENT_CHANGE,
-        ("ceo", "cfo", "resign", "steps down", "appoint", "names new",
-         "chief executive", "chief financial", "departs", "succession"),
+        # Change events only — bare "ceo"/"cfo" removed (too broad; commentary
+        # like "Nvidia CEO said …" is handled by EXEC_COMMENTARY below).
+        ("resign", "steps down", "stepping down", "appoint", "names new",
+         "departs", "succession", "to step down", "ousted", "replaces ceo"),
     ),
     (
         EventType.EARNINGS,
@@ -70,8 +72,24 @@ def _from_form(form: str, headline: str) -> EventType:
     return EventType.SEC_FILING
 
 
+_EXEC_TERMS = ("ceo", "cfo", "chief executive", "chief financial", "founder", "chairman")
+_SPEAK_TERMS = (
+    "said", "says", "told", "tells", "warns", "expects", "interview",
+    "earnings call", "conference call", "keynote", "comments", "remarks",
+)
+
+
+def _is_exec_commentary(text: str) -> bool:
+    return any(e in text for e in _EXEC_TERMS) and any(s in text for s in _SPEAK_TERMS)
+
+
 def classify(item: RawItem) -> EventType:
     """Assign an EventType to a raw item."""
+    # Structured sources carry their type directly.
+    if item.source == "macro":
+        return EventType.MACRO
+    if item.source == "earnings":
+        return EventType.EARNINGS
     if item.source == "edgar" and item.form_type:
         return _from_form(item.form_type, item.headline)
 
@@ -81,4 +99,6 @@ def classify(item: RawItem) -> EventType:
             # Word-ish boundary so "sues" doesn't match inside "issues".
             if re.search(r"\b" + re.escape(kw), text):
                 return event_type
+    if _is_exec_commentary(text):
+        return EventType.EXEC_COMMENTARY
     return EventType.NEWS

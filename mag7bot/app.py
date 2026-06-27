@@ -134,7 +134,14 @@ def run_live(cfg: Config) -> None:
     from telegram.ext import Application
 
     from . import commands, scheduler
-    from .sources import EdgarSource, FinnhubSource, GoogleNewsSource, YahooNewsSource
+    from .sources import (
+        EarningsSource,
+        EdgarSource,
+        FinnhubSource,
+        GoogleNewsSource,
+        MacroSource,
+        YahooNewsSource,
+    )
 
     seed.seed(cfg)
     application = (
@@ -151,6 +158,7 @@ def run_live(cfg: Config) -> None:
     sources = {
         "edgar": EdgarSource(cfg.sec_edgar_user_agent),
         "finnhub": FinnhubSource(cfg.finnhub_api_key),
+        "earnings": EarningsSource(cfg.finnhub_api_key),  # actuals vs estimates
     }
     if cfg.enable_google_news:
         sources["google_news"] = GoogleNewsSource(whitelist_provider)
@@ -158,6 +166,11 @@ def run_live(cfg: Config) -> None:
     if cfg.enable_yahoo_news:
         sources["yahoo_news"] = YahooNewsSource(whitelist_provider)
         print("📰 Yahoo Finance source ENABLED (whitelist-filtered).")
+    if cfg.fred_api_key:
+        sources["macro"] = MacroSource(cfg.fred_api_key)
+        print("📊 Macro source ENABLED (FRED: CPI/PCE/PPI/jobless claims).")
+    else:
+        print("📊 Macro source OFF (set FRED_API_KEY to enable economic releases).")
     application.bot_data["sources"] = sources
 
     commands.register(application)

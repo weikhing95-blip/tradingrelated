@@ -19,10 +19,12 @@ from ..schemas import EventType, Materiality, RawItem, Tier
 _BASE: dict[EventType, Materiality] = {
     EventType.EARNINGS: Materiality.CRITICAL,
     EventType.MA: Materiality.CRITICAL,
+    EventType.MACRO: Materiality.CRITICAL,  # CPI/PCE/claims — market-moving
     EventType.SEC_FILING: Materiality.MATERIAL,
     EventType.LEGAL_REGULATORY: Materiality.MATERIAL,
     EventType.MANAGEMENT_CHANGE: Materiality.MATERIAL,
     EventType.INDEX_LISTING: Materiality.MATERIAL,
+    EventType.EXEC_COMMENTARY: Materiality.MATERIAL,
     EventType.ANALYST: Materiality.LOW,
     EventType.PRODUCT_LAUNCH: Materiality.LOW,
     EventType.NEWS: Materiality.LOW,

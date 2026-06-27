@@ -42,6 +42,19 @@ EDGAR_POLL_SECONDS = 90
 FINNHUB_POLL_SECONDS = 180
 GOOGLE_NEWS_POLL_SECONDS = 300  # only used when ENABLE_GOOGLE_NEWS=true
 YAHOO_NEWS_POLL_SECONDS = 240  # only used when ENABLE_YAHOO_NEWS=true
+EARNINGS_POLL_SECONDS = 900  # Finnhub earnings calendar (uses the Finnhub key)
+MACRO_POLL_SECONDS = 1800  # FRED macro releases (only when FRED_API_KEY is set)
+
+# Macro series polled from FRED (PRD: CPI, Core CPI, PCE, Core PCE, PPI, claims).
+# kind="index" → report MoM/YoY %; kind="level" → report value + change.
+MACRO_SERIES = [
+    {"id": "CPILFESL", "label": "US Core CPI", "kind": "index"},
+    {"id": "CPIAUCSL", "label": "US CPI", "kind": "index"},
+    {"id": "PCEPILFE", "label": "US Core PCE", "kind": "index"},
+    {"id": "PCEPI", "label": "US PCE", "kind": "index"},
+    {"id": "PPIFIS", "label": "US PPI (final demand)", "kind": "index"},
+    {"id": "ICSA", "label": "US Initial Jobless Claims", "kind": "level"},
+]
 
 # Domain whitelist (PRD §4 hard rule). Anything outside this set is dropped.
 # Keys are publisher names/domains as they appear in source `source`/`publisher`
@@ -134,6 +147,7 @@ class Config:
     # Sources
     finnhub_api_key: str
     sec_edgar_user_agent: str
+    fred_api_key: str  # enables the macro source when non-empty
 
     # Behaviour
     digest_time_sgt: str  # "HHMM", e.g. "0900"
@@ -209,6 +223,7 @@ def load_config(dry_run: bool = False) -> Config:
             sec_edgar_user_agent=os.environ.get(
                 "SEC_EDGAR_USER_AGENT", "mag7bot dry-run (example@example.com)"
             ),
+            fred_api_key=os.environ.get("FRED_API_KEY", "").strip(),
             digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
             summary_mode=summary_mode,
             anthropic_api_key=anthropic_key,
@@ -224,6 +239,7 @@ def load_config(dry_run: bool = False) -> Config:
         channel_id=_require("CHANNEL_ID"),
         finnhub_api_key=_require("FINNHUB_API_KEY"),
         sec_edgar_user_agent=_require("SEC_EDGAR_USER_AGENT"),
+        fred_api_key=os.environ.get("FRED_API_KEY", "").strip(),
         digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
         summary_mode=summary_mode,
         anthropic_api_key=anthropic_key,

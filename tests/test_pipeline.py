@@ -127,6 +127,64 @@ def test_relevance_applied_in_build_events(cfg):
     assert not any("Mesh" in s for s in summaries)  # dropped: not about Google
 
 
+def test_classify_structured_and_exec_commentary():
+    from mag7bot.sources import earnings as earnings_src
+
+    # Structured sources carry their type.
+    macro_item = _item("US Core CPI (May) +0.3% MoM", ticker="MACRO", source="macro", tier=Tier.PRIMARY)
+    assert classify.classify(macro_item) == EventType.MACRO
+    earn_item = _item("AAPL Q2 earnings — EPS $1.52", ticker="AAPL", source="earnings")
+    assert classify.classify(earn_item) == EventType.EARNINGS
+    # Exec commentary vs management change.
+    assert classify.classify(_item("Nvidia CEO Jensen Huang said AI demand is strong")) == EventType.EXEC_COMMENTARY
+    assert classify.classify(_item("Tesla CEO steps down, names successor")) == EventType.MANAGEMENT_CHANGE
+
+
+def test_materiality_macro_and_exec():
+    assert materiality.score(_item("x", ticker="MACRO", source="macro"), EventType.MACRO) == Materiality.CRITICAL
+    assert materiality.score(_item("x"), EventType.EXEC_COMMENTARY) == Materiality.MATERIAL
+
+
+def test_earnings_parser_beat_miss():
+    from mag7bot.sources import earnings as e
+
+    payload = {"earningsCalendar": [
+        {"symbol": "AAPL", "year": 2026, "quarter": 2, "epsActual": 1.52,
+         "epsEstimate": 1.50, "revenueActual": 94.8e9, "revenueEstimate": 94.5e9},
+        {"symbol": "AAPL", "year": 2026, "quarter": 3, "epsActual": None,
+         "epsEstimate": 1.60, "revenueActual": None, "revenueEstimate": 96e9},
+    ]}
+    items = e._parse("AAPL", payload)
+    assert len(items) == 1  # only the reported quarter
+    assert items[0].source_item_id == "AAPL-2026Q2"
+    assert "EPS $1.52" in items[0].headline and "beat" in items[0].headline
+    assert "$94.80B" in items[0].headline
+
+
+def test_macro_summary_index_and_level():
+    from mag7bot.sources import macro as m
+
+    index_obs = [{"date": f"2026-{mm:02d}-01", "value": str(100 + i * 0.3)}
+                 for i, mm in enumerate(range(13, 0, -1))]
+    line = m._summary({"label": "US Core CPI", "kind": "index"}, index_obs)
+    assert "US Core CPI" in line and "MoM" in line and "YoY" in line
+    level_obs = [{"date": "2026-06-21", "value": "233000"}, {"date": "2026-06-14", "value": "224000"}]
+    lvl = m._summary({"label": "US Initial Jobless Claims", "kind": "level"}, level_obs)
+    assert "233,000" in lvl and "WoW" in lvl
+
+
+def test_format_macro_no_cashtag():
+    from mag7bot.schemas import Event, SentMode
+
+    ev = Event(ticker="MACRO", type=EventType.MACRO, summary="US Core CPI (May) — +0.3% MoM, +3.2% YoY",
+               links=["https://fred.stlouisfed.org/series/CPILFESL"], tier=Tier.PRIMARY,
+               source_name="FRED", materiality=Materiality.CRITICAL, confirmed_count=1,
+               sent_mode=SentMode.PENDING, ts=0.0)
+    msg = formatter.format_alert(ev)
+    assert msg.startswith("📊 US Core CPI")
+    assert "$MACRO" not in msg  # no cashtag for economy-wide events
+
+
 def test_classify_listicle_not_ma():
     # "best stocks to buy" listicles must not be misread as M&A.
     assert classify.classify(_item("Why Alphabet is one of the best stocks to buy now")) != EventType.MA
