@@ -294,13 +294,13 @@ def test_format_alert_spec():
     assert msg.startswith("$NVDA 🔴 NVIDIA to acquire Run:ai")
     assert "📄 Tier 2 — Reuters" in msg
     assert "cross-confirmed (2)" in msg
-    # Links are hyperlinked behind the publisher domain, not raw URLs.
-    assert '<a href="https://www.reuters.com/a">reuters.com</a>' in msg
-    assert '<a href="https://www.bloomberg.com/b">bloomberg.com</a>' in msg
+    # Links are hyperlinked behind the word "link" (numbered when multiple).
+    assert '<a href="https://www.reuters.com/a">link 1</a>' in msg
+    assert '<a href="https://www.bloomberg.com/b">link 2</a>' in msg
     assert "🔗 https://" not in msg  # no raw URL dumped inline
 
 
-def test_format_alert_google_link_uses_source_name():
+def test_format_alert_single_link_says_link():
     from mag7bot.schemas import Event, SentMode
 
     ev = Event(
@@ -310,9 +310,9 @@ def test_format_alert_google_link_uses_source_name():
         confirmed_count=1, unconfirmed=True, sent_mode=SentMode.PENDING, ts=0.0,
     )
     msg = formatter.format_alert(ev)
-    # The visible label is the publisher name, not the ugly google host.
-    assert ">Yahoo Finance</a>" in msg
-    assert ">news.google.com<" not in msg  # never shown as visible text
+    # A single link renders as a plain "link" — declutters the message.
+    assert "🔗 <a href=" in msg and ">link</a>" in msg
+    assert "news.google.com" not in msg.replace('href="https://news.google.com/rss/articles/CBMiAAA?oc=5"', "")
 
 
 def test_format_digest_lists_empty_tickers():
