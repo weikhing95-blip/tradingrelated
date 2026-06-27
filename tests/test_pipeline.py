@@ -96,6 +96,37 @@ def test_classify_word_boundary():
     assert classify.classify(_item("Company issues new guidance")) != EventType.LEGAL_REGULATORY
 
 
+def test_relevance_drops_mentioned_not_about():
+    from mag7bot.pipeline import relevance
+
+    # Real screenshot false-positives: company only mentioned / opinion piece.
+    assert not relevance.is_company_specific("Mesh came out of stealth with a $50 million Series A", "GOOGL")
+    assert not relevance.is_company_specific("I Correctly Predicted Alphabet Would Join the Dow Jones", "GOOGL")
+    assert not relevance.is_company_specific("3 AI stocks to buy before the rally", "NVDA")
+    # Genuinely company-specific news passes.
+    assert relevance.is_company_specific("Alphabet beats earnings expectations in Q2", "GOOGL")
+    assert relevance.is_company_specific("Nvidia to acquire Run:ai for $700M", "NVDA")
+    # Alias match (Facebook → META).
+    assert relevance.is_company_specific("Facebook parent Meta unveils new AI model", "META")
+
+
+def test_relevance_applied_in_build_events(cfg):
+    from mag7bot import ingest
+    from mag7bot.schemas import RawItem, Tier as T
+
+    now = 1_700_000_000.0
+    about = RawItem(source="yahoo_news", source_item_id="a1", ticker="GOOGL", tier=T.WIRE,
+                    headline="Alphabet reports record cloud revenue", url="https://finance.yahoo.com/a",
+                    publisher="Yahoo Finance", published_at=now)
+    mentioned = RawItem(source="yahoo_news", source_item_id="a2", ticker="GOOGL", tier=T.WIRE,
+                        headline="Mesh came out of stealth with a $50M Series A", url="https://finance.yahoo.com/b",
+                        publisher="Yahoo Finance", published_at=now)
+    events = ingest.build_events(cfg, [about, mentioned], now)
+    summaries = {e.summary for e in events}
+    assert any("Alphabet" in s for s in summaries)
+    assert not any("Mesh" in s for s in summaries)  # dropped: not about Google
+
+
 def test_classify_listicle_not_ma():
     # "best stocks to buy" listicles must not be misread as M&A.
     assert classify.classify(_item("Why Alphabet is one of the best stocks to buy now")) != EventType.MA
@@ -201,8 +232,8 @@ def test_format_alert_spec():
         confirmed_count=2, unconfirmed=False, sent_mode=SentMode.PENDING, ts=0.0,
     )
     msg = formatter.format_alert(ev)
-    # Content-forward: summary first, then $cashtag.
-    assert msg.startswith("🔴 NVIDIA to acquire Run:ai $NVDA")
+    # Ticker-first: $cashtag leads the line so the company is obvious.
+    assert msg.startswith("$NVDA 🔴 NVIDIA to acquire Run:ai")
     assert "📄 Tier 2 — Reuters" in msg
     assert "cross-confirmed (2)" in msg
     # Links are hyperlinked behind the publisher domain, not raw URLs.

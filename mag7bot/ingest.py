@@ -16,7 +16,7 @@ from typing import List, Optional, Sequence
 
 from . import db
 from .config import DEDUP_WINDOW_HOURS, MAX_ITEM_AGE_HOURS, SGT, Config
-from .pipeline import classify, dedup, materiality, summarize, whitelist
+from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
 from .sources.base import Source
 
@@ -89,6 +89,16 @@ def build_events(
         it
         for it in approved
         if it.tier == Tier.PRIMARY or not it.published_at or it.published_at >= age_cutoff
+    ]
+
+    # Company-specific relevance: for free-text news sources, require the company
+    # to be the headline subject (not just mentioned) and drop opinion/listicles.
+    # EDGAR / earnings / macro are structured sources and skip this gate.
+    approved = [
+        it
+        for it in approved
+        if it.source not in relevance.NEWS_SOURCES
+        or relevance.is_company_specific(it.headline, it.ticker)
     ]
 
     for item in approved:

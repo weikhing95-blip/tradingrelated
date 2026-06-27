@@ -50,6 +50,8 @@ class EventType(str, Enum):
     MANAGEMENT_CHANGE = "management_change"
     PRODUCT_LAUNCH = "product_launch"
     INDEX_LISTING = "index_listing"
+    EXEC_COMMENTARY = "exec_commentary"  # CEO/CFO interviews, earnings-call remarks
+    MACRO = "macro"  # economic data releases (CPI, PCE, jobless claims, ...)
     NEWS = "news"  # unclassified / general
 
     @property
@@ -64,6 +66,8 @@ class EventType(str, Enum):
             EventType.MANAGEMENT_CHANGE: "🔴",
             EventType.PRODUCT_LAUNCH: "🟢",
             EventType.INDEX_LISTING: "🔵",
+            EventType.EXEC_COMMENTARY: "🎙",
+            EventType.MACRO: "📊",
             EventType.NEWS: "📰",
         }[self]
 
@@ -78,6 +82,8 @@ class EventType(str, Enum):
             EventType.MANAGEMENT_CHANGE: "Management Change",
             EventType.PRODUCT_LAUNCH: "Product / Launch",
             EventType.INDEX_LISTING: "Index / Listing",
+            EventType.EXEC_COMMENTARY: "Exec Commentary",
+            EventType.MACRO: "Economic Data",
             EventType.NEWS: "News",
         }[self]
 

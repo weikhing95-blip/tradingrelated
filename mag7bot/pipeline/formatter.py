@@ -21,7 +21,7 @@ from typing import Iterable, List
 from urllib.parse import urlparse
 
 from ..config import SGT
-from ..schemas import Event, Tier
+from ..schemas import Event, EventType, Tier
 
 _TIER_NAME = {
     Tier.PRIMARY: "Tier 1",
@@ -78,8 +78,14 @@ def format_alert(event: Event) -> str:
         [status · ] 🕒 {DD Mon, HH:MM SGT}
     """
     source = event.source_name or _TIER_NAME[event.tier]
-    cashtag = f"${_esc(event.ticker.upper())}"
-    lines = [f"{event.type.emoji} {_esc(event.summary)} {cashtag}"]
+    # Lead with the company so the reader instantly knows who it's about.
+    # Macro (economy-wide) events have no ticker — lead with the indicator emoji.
+    if event.type == EventType.MACRO:
+        headline_line = f"{event.type.emoji} {_esc(event.summary)}"
+    else:
+        cashtag = f"${_esc(event.ticker.upper())}"
+        headline_line = f"{cashtag} {event.type.emoji} {_esc(event.summary)}"
+    lines = [headline_line]
 
     meta = f"📄 {_TIER_NAME[event.tier]} — {_esc(source)}"
     if event.links:
