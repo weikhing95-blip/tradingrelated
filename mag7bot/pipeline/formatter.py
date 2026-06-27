@@ -18,7 +18,6 @@ from __future__ import annotations
 import html
 from datetime import datetime
 from typing import Iterable, List
-from urllib.parse import urlparse
 
 from ..config import SGT
 from ..schemas import Event, EventType, Tier
@@ -35,27 +34,17 @@ def _esc(text: str) -> str:
     return html.escape(text, quote=False)
 
 
-def _host(url: str) -> str:
-    try:
-        h = (urlparse(url).hostname or "").lower()
-    except ValueError:
-        return ""
-    return h[4:] if h.startswith("www.") else h
-
-
-def _anchor_label(url: str, source_name: str = "") -> str:
-    """A short, human label for a link. Prefer the publisher domain; for
-    aggregator redirect URLs (news.google.com) fall back to the source name so
-    we never show the ugly wrapper."""
-    host = _host(url)
-    if host and "google." not in host:
-        return host
-    return source_name or "link"
-
-
-def link_html(url: str, source_name: str = "") -> str:
-    label = _anchor_label(url, source_name)
+def link_html(url: str, label: str = "link") -> str:
+    """Hyperlink behind a short word (default "link") to declutter the message —
+    bite-size summaries rarely need the reader to click through."""
     return f'<a href="{html.escape(url, quote=True)}">{_esc(label)}</a>'
+
+
+def _links_html(links: list) -> str:
+    """One link → "link"; several → "link 1 · link 2 · …"."""
+    if len(links) == 1:
+        return link_html(links[0])
+    return " · ".join(link_html(u, f"link {i + 1}") for i, u in enumerate(links))
 
 
 def _sgt_time(ts: float) -> str:
@@ -89,8 +78,7 @@ def format_alert(event: Event) -> str:
 
     meta = f"📄 {_TIER_NAME[event.tier]} — {_esc(source)}"
     if event.links:
-        anchors = " · ".join(link_html(u, event.source_name) for u in event.links)
-        meta += f"  ·  🔗 {anchors}"
+        meta += f"  ·  🔗 {_links_html(event.links)}"
     lines.append(meta)
 
     status = _status_line(event)
@@ -119,6 +107,6 @@ def format_digest(
         for ev in sorted(items, key=lambda e: e.ts):
             status = _status_line(ev)
             tag = f" [{status}]" if status else ""
-            link = f" — 🔗 {link_html(ev.links[0], ev.source_name)}" if ev.links else ""
+            link = f" — 🔗 {link_html(ev.links[0])}" if ev.links else ""
             blocks.append(f"    {ev.type.emoji} {_esc(ev.summary)}{link}{tag}")
     return "\n".join(blocks)

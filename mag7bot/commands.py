@@ -282,7 +282,7 @@ async def cmd_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     lines = ["🗂 Last digest items:"]
     for ev in events:
-        link = link_html(ev.links[0], ev.source_name) if ev.links else "(no link)"
+        link = link_html(ev.links[0]) if ev.links else "(no link)"
         lines.append(
             f"  {ev.type.emoji} {_html.escape(ev.ticker)} "
             f"{_html.escape(ev.type.display)}: {_html.escape(ev.summary, quote=False)}"
