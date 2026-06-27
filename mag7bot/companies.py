@@ -22,17 +22,18 @@ class Company:
     cik: str  # 10-digit zero-padded
     sector: str
     groups: List[str]
+    aliases: List[str]  # names the company is referred to by, for relevance
 
 
 # The Magnificent Seven. CIKs verified against SEC EDGAR.
 MAG7: Dict[str, Company] = {
-    "AAPL": Company("AAPL", "Apple Inc.", "0000320193", "Technology", ["mag7", "sp500", "tech"]),
-    "MSFT": Company("MSFT", "Microsoft Corporation", "0000789019", "Technology", ["mag7", "sp500", "tech"]),
-    "GOOGL": Company("GOOGL", "Alphabet Inc.", "0001652044", "Communication Services", ["mag7", "sp500", "tech"]),
-    "AMZN": Company("AMZN", "Amazon.com, Inc.", "0001018724", "Consumer Discretionary", ["mag7", "sp500", "tech"]),
-    "NVDA": Company("NVDA", "NVIDIA Corporation", "0001045810", "Technology", ["mag7", "sp500", "tech"]),
-    "META": Company("META", "Meta Platforms, Inc.", "0001326801", "Communication Services", ["mag7", "sp500", "tech"]),
-    "TSLA": Company("TSLA", "Tesla, Inc.", "0001318605", "Consumer Discretionary", ["mag7", "sp500", "auto"]),
+    "AAPL": Company("AAPL", "Apple Inc.", "0000320193", "Technology", ["mag7", "sp500", "tech"], ["apple", "aapl"]),
+    "MSFT": Company("MSFT", "Microsoft Corporation", "0000789019", "Technology", ["mag7", "sp500", "tech"], ["microsoft", "msft"]),
+    "GOOGL": Company("GOOGL", "Alphabet Inc.", "0001652044", "Communication Services", ["mag7", "sp500", "tech"], ["alphabet", "google", "googl", "goog"]),
+    "AMZN": Company("AMZN", "Amazon.com, Inc.", "0001018724", "Consumer Discretionary", ["mag7", "sp500", "tech"], ["amazon", "amzn", "aws"]),
+    "NVDA": Company("NVDA", "NVIDIA Corporation", "0001045810", "Technology", ["mag7", "sp500", "tech"], ["nvidia", "nvda"]),
+    "META": Company("META", "Meta Platforms, Inc.", "0001326801", "Communication Services", ["mag7", "sp500", "tech"], ["meta", "facebook", "instagram", "whatsapp"]),
+    "TSLA": Company("TSLA", "Tesla, Inc.", "0001318605", "Consumer Discretionary", ["mag7", "sp500", "auto"], ["tesla", "tsla"]),
 }
 
 
@@ -51,3 +52,12 @@ def name_for(ticker: str) -> str:
 
 def all_tickers() -> List[str]:
     return list(MAG7.keys())
+
+
+def aliases_for(ticker: str) -> List[str]:
+    """Lowercase names a company is referred to by. Falls back to the ticker
+    (and the leading word of the name) for tickers not in the Mag7 table."""
+    t = ticker.upper()
+    if t in MAG7:
+        return MAG7[t].aliases
+    return [t.lower()]
