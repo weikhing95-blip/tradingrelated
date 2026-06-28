@@ -14,6 +14,7 @@ from __future__ import annotations
 import functools
 import re
 import time
+from datetime import datetime
 from typing import Callable, List
 
 from telegram import Update
@@ -21,7 +22,7 @@ from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from . import companies, db, ingest, research
-from .config import Config
+from .config import SGT, Config
 from .schemas import Event, EventType, Materiality, SentMode, Tier
 
 _DURATION = re.compile(r"^(\d+)\s*([mhd])$", re.IGNORECASE)
@@ -60,15 +61,16 @@ def owner_only(func: Callable):
 @owner_only
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Mag 7 News Bot — commands:\n"
+        "MarketBrief — commands:\n"
         "/watchlist — show tracked tickers\n"
-        "/add TSLA — add a ticker\n"
+        "/add TSLA — add a ticker (auto-looks up the SEC CIK on EDGAR)\n"
         "/remove AMZN — remove a ticker\n"
         "/digest 0900 — set daily digest time (SGT)\n"
         "/mute NVDA 24h — mute a ticker temporarily\n"
         "/categories [TICKER [type]] — view/toggle event types\n"
         "/sources — show the source whitelist\n"
         "/show — expand items from the last digest\n"
+        "/status — operational health (last 24h)\n"
         "/test — post a sample alert to the channel (publish health-check)\n"
         "/diag — live-probe each news source and report counts\n"
         "/suggest_sources — agent proposes reputable sources to add\n"
@@ -99,10 +101,21 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Usage: /add TSLA")
         return
     ticker = context.args[0].upper()
-    cik = companies.cik_for(ticker) if ticker in companies.ALL_COMPANIES else None
+    if ticker in companies.ALL_COMPANIES:
+        cik = companies.cik_for(ticker)
+    else:
+        # Unknown ticker — best-effort dynamic lookup on EDGAR.
+        await update.message.reply_text(f"Looking up {ticker} on SEC EDGAR…")
+        cik = await companies.lookup_cik(ticker, cfg.sec_edgar_user_agent)
     db.add_ticker(cfg.db_path, cfg.feed_id, ticker, cik)
-    note = "" if cik else " (no SEC CIK on file — news only, no EDGAR filings)"
-    await update.message.reply_text(f"Added {ticker}{note}.")
+    if cik:
+        await update.message.reply_text(
+            f"Added {ticker} with EDGAR CIK {cik} — full coverage (news + SEC filings)."
+        )
+    else:
+        await update.message.reply_text(
+            f"Added {ticker} (news coverage only — no SEC CIK found on EDGAR)."
+        )
 
 
 @owner_only
@@ -207,7 +220,7 @@ async def cmd_test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         summary="Channel test — if you can see this in the channel, publishing works.",
         links=["https://www.sec.gov/cgi-bin/browse-edgar"],
         tier=Tier.PRIMARY,
-        source_name="Mag 7 News Bot",
+        source_name="MarketBrief",
         materiality=Materiality.MATERIAL,
         confirmed_count=1,
         unconfirmed=False,
@@ -427,6 +440,27 @@ async def cmd_remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+@owner_only
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Report 24h operational health: events, pushes, last push, source count."""
+    cfg = _cfg(context)
+    since = time.time() - 86400
+    s = db.status_summary(cfg.db_path, cfg.feed_id, since)
+    sources = context.application.bot_data.get("sources", {})
+    tickers = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
+    last = (
+        datetime.fromtimestamp(s["last_push"], tz=SGT).strftime("%d %b, %H:%M SGT")
+        if s["last_push"] else "none"
+    )
+    await update.message.reply_text(
+        f"📊 MarketBrief Status (last 24h)\n"
+        f"  Events: {s['total']} total · {s['pushes']} pushed · {s['digest']} digest\n"
+        f"  Last push: {last}\n"
+        f"  Sources active: {len(sources)}\n"
+        f"  Watching: {len(tickers)} ticker(s)"
+    )
+
+
 def register(application: Application) -> None:
     """Attach all command handlers to the application."""
     handlers = {
@@ -440,6 +474,7 @@ def register(application: Application) -> None:
         "categories": cmd_categories,
         "sources": cmd_sources,
         "show": cmd_show,
+        "status": cmd_status,
         "test": cmd_test,
         "diag": cmd_diag,
         "suggest_sources": cmd_suggest_sources,

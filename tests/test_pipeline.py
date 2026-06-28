@@ -181,8 +181,12 @@ def test_format_macro_no_cashtag():
                source_name="FRED", materiality=Materiality.CRITICAL, confirmed_count=1,
                sent_mode=SentMode.PENDING, ts=0.0)
     msg = formatter.format_alert(ev)
-    assert msg.startswith("📊 US Core CPI")
+    # Line 1: MACRO · ECONOMIC DATA  📊 — no $TICKER cashtag for economy events.
+    assert msg.startswith("MACRO · ECONOMIC DATA")
+    assert "📊" in msg
     assert "$MACRO" not in msg  # no cashtag for economy-wide events
+    # Line 2 carries the actual indicator + reading.
+    assert "US Core CPI (May)" in msg
 
 
 def test_classify_listicle_not_ma():
@@ -228,7 +232,9 @@ def test_materiality_routing():
     assert materiality.score(_item("x"), EventType.MA) == Materiality.CRITICAL
     assert materiality.score(_item("x"), EventType.EARNINGS) == Materiality.CRITICAL
     assert materiality.score(_item("x"), EventType.LEGAL_REGULATORY) == Materiality.MATERIAL
-    assert materiality.score(_item("x"), EventType.ANALYST) == Materiality.MATERIAL
+    # Routine analyst notes → LOW; significant initiations/target moves → MATERIAL.
+    assert materiality.score(_item("routine analyst note"), EventType.ANALYST) == Materiality.LOW
+    assert materiality.score(_item("initiates coverage on AAPL"), EventType.ANALYST) == Materiality.MATERIAL
 
 
 def test_materiality_form4_demoted():
@@ -301,13 +307,19 @@ def test_format_alert_spec():
         confirmed_count=2, unconfirmed=False, sent_mode=SentMode.PENDING, ts=0.0,
     )
     msg = formatter.format_alert(ev)
-    # Ticker-first: $cashtag leads the line so the company is obvious.
-    assert msg.startswith("$NVDA 🔴 NVIDIA to acquire Run:ai")
-    assert "📄 Tier 2 — Reuters" in msg
-    assert "cross-confirmed (2)" in msg
-    # Links are hyperlinked behind the word "link" (numbered when multiple).
-    assert '<a href="https://www.reuters.com/a">link 1</a>' in msg
-    assert '<a href="https://www.bloomberg.com/b">link 2</a>' in msg
+    lines = msg.split("\n")
+    # Line 1: $TICKER · EVENT TYPE  emoji (the "Tier N —" label is gone).
+    assert lines[0].startswith("$NVDA · ")
+    assert "🔴" in lines[0]
+    assert "Tier 2" not in msg  # users never see the tier label anymore
+    # Line 2: bite-size summary on its own line (no cashtag duplication).
+    assert lines[1] == "NVIDIA to acquire Run:ai"
+    # Line 3: source + status + timestamp condensed onto one row.
+    assert "cross-confirmed (2)" in lines[2]
+    assert "🕒" in lines[2]
+    # Links are still hyperlinked (publisher label fronts the first one).
+    assert 'href="https://www.reuters.com/a"' in msg
+    assert 'href="https://www.bloomberg.com/b"' in msg
     assert "🔗 https://" not in msg  # no raw URL dumped inline
 
 
@@ -321,15 +333,22 @@ def test_format_alert_single_link_says_link():
         confirmed_count=1, unconfirmed=True, sent_mode=SentMode.PENDING, ts=0.0,
     )
     msg = formatter.format_alert(ev)
-    # A single link renders as a plain "link" — declutters the message.
-    assert "🔗 <a href=" in msg and ">link</a>" in msg
+    # Publisher fronts the link, link itself stays a clean "link" label —
+    # the raw domain only appears inside the href attribute.
+    assert "🔗 Yahoo Finance (" in msg
+    assert ">link</a>" in msg
     assert "news.google.com" not in msg.replace('href="https://news.google.com/rss/articles/CBMiAAA?oc=5"', "")
 
 
 def test_format_digest_lists_empty_tickers():
     text = formatter.format_digest([], ["AAPL", "NVDA"], now=0.0)
-    assert "AAPL: no material events" in text
-    assert "NVDA: no material events" in text
+    # MarketBrief header + per-ticker "no new events" notes.
+    assert text.startswith("📰 MarketBrief Daily")
+    assert "📈 BY COMPANY" in text
+    assert "$AAPL  — no new events" in text
+    assert "$NVDA  — no new events" in text
+    # Always-present footer with the update count.
+    assert "MarketBrief · 0 updates today" in text
 
 
 # --------------------------------------------------------------------------- #

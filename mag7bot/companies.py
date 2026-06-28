@@ -11,8 +11,11 @@ submissions API expects them.
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
+
+import httpx
 
 
 @dataclass(frozen=True)
@@ -71,3 +74,42 @@ def aliases_for(ticker: str) -> List[str]:
     if t in ALL_COMPANIES:
         return ALL_COMPANIES[t].aliases
     return [t.lower()]
+
+
+# Alias for code that prefers a more general name (the table currently *is*
+# the Mag 7, but other tickers can be added at runtime via the watchlist).
+ALL_COMPANIES: Dict[str, Company] = MAG7
+
+
+async def lookup_cik(
+    ticker: str,
+    user_agent: str = "MarketBrief contact@marketbrief.app",
+    timeout: float = 10.0,
+) -> Optional[str]:
+    """Resolve a ticker to its SEC CIK via EDGAR's company-search endpoint.
+
+    Returns a 10-digit zero-padded CIK string, or ``None`` when EDGAR doesn't
+    recognise the ticker (or the lookup fails for any reason — best effort).
+    """
+    url = (
+        "https://www.sec.gov/cgi-bin/browse-edgar"
+        f"?action=getcompany&CIK={ticker.upper()}&type=10-K"
+        "&dateb=&owner=include&count=1&search_text=&output=atom"
+    )
+    try:
+        async with httpx.AsyncClient(
+            headers={"User-Agent": user_agent}, timeout=timeout
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+        # EDGAR's atom feed nests CIK inside <company-info><cik>…</cik>.
+        for el in root.iter():
+            tag = el.tag.split("}", 1)[-1]  # strip XML namespace
+            if tag == "cik":
+                raw = (el.text or "").strip()
+                if raw.isdigit():
+                    return raw.zfill(10)
+    except Exception:
+        return None
+    return None

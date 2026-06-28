@@ -506,3 +506,32 @@ def last_digest_events(path: Path, feed_id: int, since_ts: float) -> List[Event]
             (feed_id, SentMode.DIGEST.value, since_ts),
         ).fetchall()
     return [_row_to_event(r) for r in rows]
+
+
+def status_summary(path: Path, feed_id: int, since: float) -> dict:
+    """Operational health counts for the `/status` command.
+
+    Returns total events since ``since`` (push + digest), the push-vs-digest
+    split, and the timestamp of the most recent push (across all time).
+    """
+    with connect(path) as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM events WHERE feed_id = ? AND ts >= ?",
+            (feed_id, since),
+        ).fetchone()["n"]
+        pushes = conn.execute(
+            "SELECT COUNT(*) AS n FROM events "
+            "WHERE feed_id = ? AND ts >= ? AND sent_mode = ?",
+            (feed_id, since, SentMode.PUSH.value),
+        ).fetchone()["n"]
+        last_push_row = conn.execute(
+            "SELECT MAX(ts) AS t FROM events WHERE feed_id = ? AND sent_mode = ?",
+            (feed_id, SentMode.PUSH.value),
+        ).fetchone()
+    last_push = last_push_row["t"] if last_push_row else None
+    return {
+        "total": int(total),
+        "pushes": int(pushes),
+        "digest": int(total) - int(pushes),
+        "last_push": last_push,
+    }

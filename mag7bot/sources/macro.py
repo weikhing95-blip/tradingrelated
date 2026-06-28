@@ -71,9 +71,10 @@ def _summary(series: Dict[str, str], obs: List[Dict[str, Any]]) -> Optional[str]
         else:
             date_label = _fmt_day(date)
             change = f"  ({latest - prior:+,.0f} WoW)" if prior is not None else ""
-        return f"{label} ({date_label}) — {latest:,.0f}{change}"
+        prior_tail = f"  |  Prior: {prior:,.0f}" if prior is not None else ""
+        return f"{label} ({date_label}) — {latest:,.0f}{change}{prior_tail}"
 
-    # index → MoM and YoY percent changes
+    # index → MoM and YoY percent changes (current period).
     mom = _pct(latest, vals[1][1]) if len(vals) > 1 else None
     yoy = _pct(latest, vals[12][1]) if len(vals) > 12 else None
     pieces = []
@@ -82,7 +83,18 @@ def _summary(series: Dict[str, str], obs: List[Dict[str, Any]]) -> Optional[str]
     if yoy is not None:
         pieces.append(f"{yoy:+.1f}% YoY")
     change = ", ".join(pieces) if pieces else f"{latest:.1f}"
-    return f"{label} ({_fmt_month(date)}) — {change}"
+
+    # Prior period readings: MoM = vals[1] vs vals[2]; YoY = vals[1] vs vals[13].
+    prior_mom = _pct(vals[1][1], vals[2][1]) if len(vals) > 2 else None
+    prior_yoy = _pct(vals[1][1], vals[13][1]) if len(vals) > 13 else None
+    prior_pieces = []
+    if prior_mom is not None:
+        prior_pieces.append(f"{prior_mom:+.1f}%")
+    if prior_yoy is not None:
+        prior_pieces.append(f"{prior_yoy:+.1f}%")
+    prior_tail = f"  |  Prior: {' / '.join(prior_pieces)}" if prior_pieces else ""
+
+    return f"{label} ({_fmt_month(date)}) — {change}{prior_tail}"
 
 
 def latest_date(obs: List[Dict[str, Any]]) -> Optional[str]:

@@ -25,7 +25,14 @@ _KEYWORD_RULES: List[Tuple[EventType, Tuple[str, ...]]] = [
         EventType.MA,
         # NB: avoid bare "to buy" — it matches listicles like "best stocks to buy".
         ("acquire", "acquisition", "merger", "merges", "buyout", "takeover",
-         "to acquire", "acquires", "stake in", "divest", "spin off", "spinoff"),
+         "to acquire", "acquires", "stake in", "divest", "spin off", "spinoff",
+         # Buybacks — corporate-action signal, treated like M&A (critical).
+         "buyback", "share repurchase", "stock repurchase", "repurchase program",
+         "repurchase plan", "buyback program", "billion buyback",
+         # Dividends — declarations and changes are corporate actions.
+         "declares dividend", "raises dividend", "cuts dividend",
+         "suspends dividend", "special dividend", "dividend increase",
+         "dividend cut", "quarterly dividend"),
     ),
     (
         EventType.LEGAL_REGULATORY,
@@ -48,7 +55,12 @@ _KEYWORD_RULES: List[Tuple[EventType, Tuple[str, ...]]] = [
         EventType.ANALYST,
         ("upgrade", "downgrade", "price target", "initiates coverage",
          "raises target", "cuts target", "overweight", "underweight",
-         "buy rating", "sell rating", "outperform"),
+         "buy rating", "sell rating", "outperform",
+         # Credit-rating actions (Moody's / S&P / Fitch).
+         "upgrades credit", "downgrades credit", "credit rating",
+         "rating upgrade", "rating downgrade", "affirms rating",
+         "moody", "s&p rates", "fitch rates",
+         "investment grade", "junk bond", "rating action"),
     ),
     (
         EventType.INDEX_LISTING,
