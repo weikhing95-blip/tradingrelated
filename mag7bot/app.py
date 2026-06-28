@@ -18,7 +18,7 @@ import asyncio
 import time
 
 from . import db, ingest, publisher as publisher_mod, seed
-from .config import Config, load_config
+from .config import Config, DEFAULT_TELEGRAM_CHANNELS, load_config
 from .schemas import SentMode
 from .sources import fixtures
 
@@ -99,6 +99,11 @@ async def preflight(bot, cfg: Config) -> bool:
 async def _post_init(application) -> None:
     cfg = application.bot_data["cfg"]
     await preflight(application.bot, cfg)
+
+    # Seed default Telegram channels on first start (idempotent).
+    for username, name in DEFAULT_TELEGRAM_CHANNELS:
+        db.add_telegram_channel(cfg.db_path, username, name, added_by="default")
+
     # Prime any source with no history yet (cold start, or a newly enabled
     # source like Google News added to a warm DB): mark its current items as
     # seen WITHOUT alerting, so enabling it doesn't replay days-old news.
@@ -111,6 +116,19 @@ async def _post_init(application) -> None:
             f"🟢 Primed {primed} pre-existing item(s) as seen across [{names}] "
             f"(no alerts). New events from now on will be pushed/digested."
         )
+
+    # Start Telegram channel monitor if credentials are configured.
+    if cfg.telegram_api_id and cfg.telegram_api_hash:
+        try:
+            from .telegram_monitor import TelegramChannelMonitor
+
+            monitor = TelegramChannelMonitor(cfg, application.bot_data["publisher"])
+            asyncio.create_task(monitor.start())
+            print("📡 Telegram channel monitor STARTED (pyrogram user client).")
+        except ImportError:
+            print("⚠️  pyrogram not installed — channel monitor disabled. pip install pyrogram TgCrypto")
+    else:
+        print("📡 Telegram channel monitor OFF (set TELEGRAM_API_ID + TELEGRAM_API_HASH to enable).")
 
 
 async def _check(cfg: Config) -> None:
@@ -137,8 +155,10 @@ def run_live(cfg: Config) -> None:
     from .sources import (
         EarningsSource,
         EdgarSource,
+        FedSource,
         FinnhubSource,
         GoogleNewsSource,
+        InsiderSource,
         MacroSource,
         YahooNewsSource,
     )
@@ -168,9 +188,15 @@ def run_live(cfg: Config) -> None:
         print("📰 Yahoo Finance source ENABLED (whitelist-filtered).")
     if cfg.fred_api_key:
         sources["macro"] = MacroSource(cfg.fred_api_key)
-        print("📊 Macro source ENABLED (FRED: CPI/PCE/PPI/jobless claims).")
+        print("📊 Macro source ENABLED (FRED: CPI/PCE/PPI/NFP/jobless claims).")
     else:
         print("📊 Macro source OFF (set FRED_API_KEY to enable economic releases).")
+    if cfg.enable_insider:
+        sources["insider"] = InsiderSource(cfg.finnhub_api_key)
+        print("👤 Insider source ENABLED (Finnhub: large open-market trades ≥$1M).")
+    if cfg.enable_fed_rss:
+        sources["fed"] = FedSource()
+        print("🏦 Fed RSS source ENABLED (FOMC decisions + governor speeches).")
     application.bot_data["sources"] = sources
 
     commands.register(application)

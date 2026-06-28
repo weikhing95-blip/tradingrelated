@@ -12,8 +12,10 @@ from __future__ import annotations
 from .base import Source
 from .earnings import EarningsSource
 from .edgar import EdgarSource
+from .fed import FedSource
 from .finnhub import FinnhubSource
 from .google_news import GoogleNewsSource
+from .insider import InsiderSource
 from .macro import MacroSource
 from .yahoo_news import YahooNewsSource
 
@@ -21,8 +23,10 @@ __all__ = [
     "Source",
     "EarningsSource",
     "EdgarSource",
+    "FedSource",
     "FinnhubSource",
     "GoogleNewsSource",
+    "InsiderSource",
     "MacroSource",
     "YahooNewsSource",
 ]

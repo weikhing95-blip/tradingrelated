@@ -75,7 +75,7 @@ def _parse(ticker: str, cik: str, payload: Dict[str, Any]) -> List[RawItem]:
         filing_date = dates[i] if i < len(dates) else ""
         acceptance = acceptances[i] if i < len(acceptances) else ""
         desc = docs[i] if i < len(docs) else ""
-        name = companies.name_for(ticker) if ticker.upper() in companies.MAG7 else ticker
+        name = companies.name_for(ticker) if ticker.upper() in companies.ALL_COMPANIES else ticker
         headline = f"{name} files {form}" + (f" — {desc}" if desc else "")
         items.append(
             RawItem(
@@ -114,7 +114,7 @@ class EdgarSource(Source):
             headers=self._headers, timeout=self._timeout
         ) as client:
             for ticker in tickers:
-                if ticker.upper() not in companies.MAG7:
+                if ticker.upper() not in companies.ALL_COMPANIES:
                     continue
                 cik = companies.cik_for(ticker)
                 url = SUBMISSIONS_URL.format(cik=cik)

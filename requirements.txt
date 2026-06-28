@@ -6,3 +6,5 @@ pypdf>=4  # only for extracting memo text from a PDF (extract_belief.py step)
 python-telegram-bot[job-queue]>=21  # async bot + JobQueue (polling + daily digest)
 httpx>=0.27  # async HTTP for source polling (also a python-telegram-bot dep)
 cffi>=1.16  # explicit: cryptography (a PTB dep) needs the _cffi_backend at import
+pyrogram>=2.0  # MTProto user client for reading Telegram channels
+TgCrypto>=1.2  # fast crypto for pyrogram (optional but strongly recommended)

@@ -65,8 +65,13 @@ def _summary(series: Dict[str, str], obs: List[Dict[str, Any]]) -> Optional[str]
     date, latest = vals[0]
     if series["kind"] == "level":
         prior = vals[1][1] if len(vals) > 1 else None
-        wow = f"  ({latest - prior:+,.0f} WoW)" if prior is not None else ""
-        return f"{label} ({_fmt_day(date)}) — {latest:,.0f}{wow}"
+        if series.get("freq") == "monthly":
+            date_label = _fmt_month(date)
+            change = f"  ({latest - prior:+,.0f} MoM)" if prior is not None else ""
+        else:
+            date_label = _fmt_day(date)
+            change = f"  ({latest - prior:+,.0f} WoW)" if prior is not None else ""
+        return f"{label} ({date_label}) — {latest:,.0f}{change}"
 
     # index → MoM and YoY percent changes
     mom = _pct(latest, vals[1][1]) if len(vals) > 1 else None

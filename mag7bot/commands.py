@@ -99,7 +99,7 @@ async def cmd_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Usage: /add TSLA")
         return
     ticker = context.args[0].upper()
-    cik = companies.cik_for(ticker) if ticker in companies.MAG7 else None
+    cik = companies.cik_for(ticker) if ticker in companies.ALL_COMPANIES else None
     db.add_ticker(cfg.db_path, cfg.feed_id, ticker, cik)
     note = "" if cik else " (no SEC CIK on file — news only, no EDGAR filings)"
     await update.message.reply_text(f"Added {ticker}{note}.")
@@ -376,6 +376,57 @@ async def cmd_remove_source(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+@owner_only
+async def cmd_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List monitored Telegram channels."""
+    cfg = _cfg(context)
+    rows = db.list_telegram_channels(cfg.db_path)
+    if not rows:
+        await update.message.reply_text(
+            "No Telegram channels monitored yet.\nUse /add_channel @username to add one."
+        )
+        return
+    lines = ["📡 Monitored Telegram channels:", ""]
+    for r in rows:
+        lines.append(f"• {r['username']}  ({r['name']})  — added by {r['added_by']}")
+    await update.message.reply_text("\n".join(lines))
+
+
+@owner_only
+async def cmd_add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Add a Telegram channel to the monitor list. Usage: /add_channel @WalterBloomberg [Name]"""
+    cfg = _cfg(context)
+    if not context.args:
+        await update.message.reply_text("Usage: /add_channel @username [Display Name]")
+        return
+    username = context.args[0].strip()
+    if not username.startswith("@"):
+        username = f"@{username}"
+    name = " ".join(context.args[1:]) if len(context.args) > 1 else username.lstrip("@")
+    db.add_telegram_channel(cfg.db_path, username, name, added_by="manual")
+    await update.message.reply_text(
+        f"✅ Added {username} to channel monitor.\n"
+        "Messages mentioning tracked tickers will now be forwarded to the channel.\n"
+        "⚠️  Requires TELEGRAM_API_ID/HASH + session setup to be active."
+    )
+
+
+@owner_only
+async def cmd_remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove a monitored Telegram channel. Usage: /remove_channel @WalterBloomberg"""
+    cfg = _cfg(context)
+    if not context.args:
+        await update.message.reply_text("Usage: /remove_channel @username")
+        return
+    username = context.args[0].strip()
+    removed = db.remove_telegram_channel(cfg.db_path, username)
+    await update.message.reply_text(
+        f"Removed {username} from channel monitor."
+        if removed
+        else f"{username} was not in the monitor list."
+    )
+
+
 def register(application: Application) -> None:
     """Attach all command handlers to the application."""
     handlers = {
@@ -394,6 +445,9 @@ def register(application: Application) -> None:
         "suggest_sources": cmd_suggest_sources,
         "add_source": cmd_add_source,
         "remove_source": cmd_remove_source,
+        "channels": cmd_channels,
+        "add_channel": cmd_add_channel,
+        "remove_channel": cmd_remove_channel,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))

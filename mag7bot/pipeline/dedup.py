@@ -31,7 +31,7 @@ def normalize(headline: str, ticker: str) -> str:
     text = headline.lower()
     # Drop the ticker and company name tokens — they're constant per ticker.
     drop = {ticker.lower()}
-    if ticker.upper() in companies.MAG7:
+    if ticker.upper() in companies.ALL_COMPANIES:
         name = companies.name_for(ticker).lower()
         drop.update(re.split(r"[^a-z0-9]+", name))
     text = _PUNCT.sub(" ", text)

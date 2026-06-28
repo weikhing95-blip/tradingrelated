@@ -44,6 +44,22 @@ GOOGLE_NEWS_POLL_SECONDS = 300  # only used when ENABLE_GOOGLE_NEWS=true
 YAHOO_NEWS_POLL_SECONDS = 240  # only used when ENABLE_YAHOO_NEWS=true
 EARNINGS_POLL_SECONDS = 900  # Finnhub earnings calendar (uses the Finnhub key)
 MACRO_POLL_SECONDS = 1800  # FRED macro releases (only when FRED_API_KEY is set)
+INSIDER_POLL_SECONDS = 1800  # Finnhub insider transactions (large trades)
+FED_RSS_POLL_SECONDS = 300   # Federal Reserve RSS (speeches + FOMC press releases)
+
+# Large-insider-trade threshold: trades above this value get an instant push.
+INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
+
+# Autonomous research agent: how often to run source discovery (in seconds).
+RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
+
+# Default Telegram channels to seed on first start (comma-separated usernames).
+# Verify usernames before adding — @WalterBloomberg is high-confidence;
+# SM News username should be confirmed via the Telegram app.
+DEFAULT_TELEGRAM_CHANNELS = [
+    ("@WalterBloomberg", "Walter Bloomberg"),
+    ("@smnewsnow", "SM News"),  # verify username in Telegram before relying on this
+]
 
 # Macro series polled from FRED (PRD: CPI, Core CPI, PCE, Core PCE, PPI, claims).
 # kind="index" → report MoM/YoY %; kind="level" → report value + change.
@@ -53,7 +69,8 @@ MACRO_SERIES = [
     {"id": "PCEPILFE", "label": "US Core PCE", "kind": "index"},
     {"id": "PCEPI", "label": "US PCE", "kind": "index"},
     {"id": "PPIFIS", "label": "US PPI (final demand)", "kind": "index"},
-    {"id": "ICSA", "label": "US Initial Jobless Claims", "kind": "level"},
+    {"id": "ICSA", "label": "US Initial Jobless Claims", "kind": "level", "freq": "weekly"},
+    {"id": "PAYEMS", "label": "US Nonfarm Payrolls", "kind": "level", "freq": "monthly"},
 ]
 
 # Domain whitelist (PRD §4 hard rule). Anything outside this set is dropped.
@@ -160,6 +177,16 @@ class Config:
     # Sources (optional)
     enable_google_news: bool = False
     enable_yahoo_news: bool = False
+    enable_insider: bool = True   # Finnhub large-insider-trade alerts (uses Finnhub key)
+    enable_fed_rss: bool = True   # Fed speeches + FOMC press releases (free RSS)
+
+    # Telegram user client (for channel monitoring)
+    telegram_api_id: int = 0          # from my.telegram.org
+    telegram_api_hash: str = ""       # from my.telegram.org
+    telegram_session_path: str = ""   # path to pyrogram .session file (auto-derived if empty)
+
+    # Research agent
+    enable_research_agent: bool = True  # weekly autonomous source discovery
 
     # Mode
     dry_run: bool = False
@@ -180,6 +207,16 @@ def _load_dotenv(path: Path) -> None:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
+        value = value.strip()
+        # Strip inline or standalone comments:
+        #   FOO=bar   # note  →  "bar"
+        #   FOO=      # note  →  ""  (value IS the comment after stripping)
+        if value.startswith("#"):
+            value = ""
+        else:
+            comment_pos = value.find(" #")
+            if comment_pos != -1:
+                value = value[:comment_pos]
         value = value.strip().strip('"').strip("'")
         # Don't clobber values already exported in the real environment.
         os.environ.setdefault(key, value)
@@ -211,8 +248,17 @@ def load_config(dry_run: bool = False) -> Config:
     if summary_mode == "llm" and not anthropic_key and not dry_run:
         raise RuntimeError("SUMMARY_MODE=llm requires ANTHROPIC_API_KEY.")
     _truthy = ("1", "true", "yes", "on")
+    _falsy = ("0", "false", "no", "off")
     enable_google_news = os.environ.get("ENABLE_GOOGLE_NEWS", "").strip().lower() in _truthy
     enable_yahoo_news = os.environ.get("ENABLE_YAHOO_NEWS", "").strip().lower() in _truthy
+    enable_insider = os.environ.get("ENABLE_INSIDER", "true").strip().lower() not in _falsy
+    enable_fed_rss = os.environ.get("ENABLE_FED_RSS", "true").strip().lower() not in _falsy
+    enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "true").strip().lower() not in _falsy
+
+    tg_api_id_raw = os.environ.get("TELEGRAM_API_ID", "0").strip() or "0"
+    tg_api_id = int(tg_api_id_raw) if tg_api_id_raw.isdigit() else 0
+    tg_api_hash = os.environ.get("TELEGRAM_API_HASH", "").strip()
+    tg_session = os.environ.get("TELEGRAM_SESSION_PATH", "").strip()
 
     if dry_run:
         return Config(
@@ -231,6 +277,12 @@ def load_config(dry_run: bool = False) -> Config:
             dry_run=True,
             enable_google_news=enable_google_news,
             enable_yahoo_news=enable_yahoo_news,
+            enable_insider=enable_insider,
+            enable_fed_rss=enable_fed_rss,
+            telegram_api_id=tg_api_id,
+            telegram_api_hash=tg_api_hash,
+            telegram_session_path=tg_session,
+            enable_research_agent=enable_research_agent,
         )
 
     return Config(
@@ -247,4 +299,10 @@ def load_config(dry_run: bool = False) -> Config:
         dry_run=False,
         enable_google_news=enable_google_news,
         enable_yahoo_news=enable_yahoo_news,
+        enable_insider=enable_insider,
+        enable_fed_rss=enable_fed_rss,
+        telegram_api_id=tg_api_id,
+        telegram_api_hash=tg_api_hash,
+        telegram_session_path=tg_session,
+        enable_research_agent=enable_research_agent,
     )

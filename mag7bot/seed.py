@@ -16,7 +16,7 @@ def seed(cfg: Config) -> None:
     db.init_db(cfg.db_path)
 
     # Reference companies (rarely changes).
-    for c in companies.MAG7.values():
+    for c in companies.ALL_COMPANIES.values():
         db.upsert_company(cfg.db_path, c.ticker, c.name, c.cik, c.sector, c.groups)
 
     # The single feed config row (PRD §9: MVP has exactly one).
@@ -32,6 +32,6 @@ def seed(cfg: Config) -> None:
 
     # Default watchlist (only adds tickers not already present).
     existing = set(db.watchlist_tickers(cfg.db_path, cfg.feed_id))
-    for c in companies.MAG7.values():
+    for c in companies.ALL_COMPANIES.values():
         if c.ticker not in existing:
             db.add_ticker(cfg.db_path, cfg.feed_id, c.ticker, c.cik)

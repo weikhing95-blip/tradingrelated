@@ -228,12 +228,23 @@ def test_materiality_routing():
     assert materiality.score(_item("x"), EventType.MA) == Materiality.CRITICAL
     assert materiality.score(_item("x"), EventType.EARNINGS) == Materiality.CRITICAL
     assert materiality.score(_item("x"), EventType.LEGAL_REGULATORY) == Materiality.MATERIAL
-    assert materiality.score(_item("x"), EventType.ANALYST) == Materiality.LOW
+    assert materiality.score(_item("x"), EventType.ANALYST) == Materiality.MATERIAL
 
 
 def test_materiality_form4_demoted():
+    # EDGAR Form 4 raw filings always go to digest.
     f4 = _item("insider sale", source="edgar", form_type="4", tier=Tier.PRIMARY)
     assert materiality.score(f4, EventType.SEC_FILING) == Materiality.LOW
+
+
+def test_materiality_insider_threshold():
+    # Small trade → digest; large trade → instant push.
+    small = _item("CEO sold 100 AAPL shares (~$22,800)", source="insider", tier=Tier.PRIMARY)
+    small.payload["value_usd"] = 22_800
+    assert materiality.score(small, EventType.SEC_FILING) == Materiality.LOW
+    large = _item("CEO sold 120,000 AAPL shares (~$27.4M)", source="insider", tier=Tier.PRIMARY)
+    large.payload["value_usd"] = 27_400_000
+    assert materiality.score(large, EventType.SEC_FILING) == Materiality.MATERIAL
 
 
 def test_materiality_halt_is_critical():

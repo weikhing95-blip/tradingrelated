@@ -16,13 +16,16 @@ from datetime import time as dtime
 
 from telegram.ext import Application, ContextTypes
 
-from . import ingest, publisher as publisher_mod
+from . import ingest, publisher as publisher_mod, research
 from .config import (
     EARNINGS_POLL_SECONDS,
     EDGAR_POLL_SECONDS,
+    FED_RSS_POLL_SECONDS,
     FINNHUB_POLL_SECONDS,
     GOOGLE_NEWS_POLL_SECONDS,
+    INSIDER_POLL_SECONDS,
     MACRO_POLL_SECONDS,
+    RESEARCH_AGENT_INTERVAL,
     SGT,
     YAHOO_NEWS_POLL_SECONDS,
 )
@@ -63,6 +66,26 @@ async def poll_earnings(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def poll_macro(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "macro")
+
+
+async def poll_insider(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "insider")
+
+
+async def poll_fed(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "fed")
+
+
+async def run_research_agent(context: ContextTypes.DEFAULT_TYPE) -> None:
+    bot_data = context.application.bot_data
+    cfg = bot_data["cfg"]
+    if not cfg.anthropic_api_key or not cfg.enable_research_agent:
+        return
+    try:
+        report = await research.run_autonomous(cfg.anthropic_api_key, cfg)
+    except Exception as exc:
+        report = f"⚠️ Research agent error: {exc}"
+    await context.application.bot.send_message(chat_id=cfg.owner_user_id, text=report)
 
 
 async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -110,6 +133,22 @@ def setup_jobs(application: Application) -> None:
         jq.run_repeating(
             poll_macro, interval=MACRO_POLL_SECONDS, first=70, name="poll_macro"
         )
+    if "insider" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_insider, interval=INSIDER_POLL_SECONDS, first=80, name="poll_insider"
+        )
+    if "fed" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_fed, interval=FED_RSS_POLL_SECONDS, first=90, name="poll_fed"
+        )
+    if cfg.anthropic_api_key and cfg.enable_research_agent:
+        jq.run_repeating(
+            run_research_agent,
+            interval=RESEARCH_AGENT_INTERVAL,
+            first=300,  # 5 min after start (not on cold boot)
+            name="research_agent",
+        )
+        print("🔬 Research agent ENABLED (weekly autonomous source discovery).")
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(
         application, hhmm

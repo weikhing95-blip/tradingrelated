@@ -89,6 +89,23 @@ CREATE TABLE IF NOT EXISTS whitelist_extra (
     tier     TEXT NOT NULL DEFAULT 'tier2',
     added_at REAL NOT NULL
 );
+
+-- Telegram channels to monitor (managed via /add_channel, /remove_channel).
+CREATE TABLE IF NOT EXISTS telegram_channels (
+    username   TEXT PRIMARY KEY,   -- e.g. '@WalterBloomberg'
+    name       TEXT NOT NULL DEFAULT '',
+    added_by   TEXT NOT NULL DEFAULT 'manual',  -- 'manual' or 'research_agent'
+    added_at   REAL NOT NULL
+);
+
+-- Audit log for the autonomous research agent.
+CREATE TABLE IF NOT EXISTS research_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at     REAL NOT NULL,
+    action     TEXT NOT NULL,   -- 'added_source', 'rejected_source', 'suggested_channel'
+    target     TEXT NOT NULL,
+    reason     TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -431,6 +448,52 @@ def list_whitelist_extra(path: Path) -> List[sqlite3.Row]:
         return conn.execute(
             "SELECT * FROM whitelist_extra ORDER BY tier, domain"
         ).fetchall()
+
+
+# --------------------------------------------------------------------------- #
+# telegram_channels                                                             #
+# --------------------------------------------------------------------------- #
+
+
+def add_telegram_channel(path: Path, username: str, name: str = "", added_by: str = "manual") -> None:
+    """Add a channel to the monitor list (idempotent)."""
+    username = username.lstrip("@").lower()
+    with connect(path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO telegram_channels (username, name, added_by, added_at) VALUES (?,?,?,?)",
+            (f"@{username}", name or username, added_by, time.time()),
+        )
+
+
+def remove_telegram_channel(path: Path, username: str) -> bool:
+    username = username.lstrip("@").lower()
+    with connect(path) as conn:
+        cur = conn.execute("DELETE FROM telegram_channels WHERE username = ?", (f"@{username}",))
+    return cur.rowcount > 0
+
+
+def list_telegram_channels(path: Path) -> List[sqlite3.Row]:
+    with connect(path) as conn:
+        return conn.execute("SELECT * FROM telegram_channels ORDER BY added_at").fetchall()
+
+
+def list_telegram_channel_usernames(path: Path) -> List[str]:
+    with connect(path) as conn:
+        rows = conn.execute("SELECT username FROM telegram_channels").fetchall()
+    return [r["username"] for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# research_log                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def log_research(path: Path, action: str, target: str, reason: str = "") -> None:
+    with connect(path) as conn:
+        conn.execute(
+            "INSERT INTO research_log (run_at, action, target, reason) VALUES (?,?,?,?)",
+            (time.time(), action, target, reason),
+        )
 
 
 def last_digest_events(path: Path, feed_id: int, since_ts: float) -> List[Event]:

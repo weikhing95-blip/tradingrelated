@@ -63,6 +63,14 @@ _KEYWORD_RULES: List[Tuple[EventType, Tuple[str, ...]]] = [
 ]
 
 
+_TRADE_POLICY_TERMS = (
+    "tariff", "tariffs", "export ban", "export control", "export restriction",
+    "export license", "entity list", "trade war", "trade restriction",
+    "chip ban", "semiconductor ban", "import duty", "import ban",
+    "sanction", "sanctions", "embargo", "trade curb", "trade limit",
+)
+
+
 def _from_form(form: str, headline: str) -> EventType:
     h = headline.lower()
     if form.startswith("8-K") and any(hint in h for hint in _EARNINGS_FORM_HINTS):
@@ -90,6 +98,11 @@ def classify(item: RawItem) -> EventType:
         return EventType.MACRO
     if item.source == "earnings":
         return EventType.EARNINGS
+    if item.source == "insider":
+        return EventType.SEC_FILING  # Form 4 via Finnhub
+    if item.source == "fed":
+        # Fed speeches → exec commentary (MATERIAL); press releases → macro (CRITICAL).
+        return EventType.EXEC_COMMENTARY if item.payload.get("feed_type") == "speech" else EventType.MACRO
     if item.source == "edgar" and item.form_type:
         return _from_form(item.form_type, item.headline)
 
@@ -99,6 +112,9 @@ def classify(item: RawItem) -> EventType:
             # Word-ish boundary so "sues" doesn't match inside "issues".
             if re.search(r"\b" + re.escape(kw), text):
                 return event_type
+    # Trade policy / export controls: classified as LEGAL_REGULATORY (MATERIAL push).
+    if any(term in text for term in _TRADE_POLICY_TERMS):
+        return EventType.LEGAL_REGULATORY
     if _is_exec_commentary(text):
         return EventType.EXEC_COMMENTARY
     return EventType.NEWS

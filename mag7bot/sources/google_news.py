@@ -42,13 +42,15 @@ QUERIES = {
     "NVDA": "NVIDIA stock",
     "META": "Meta Platforms stock",
     "TSLA": "Tesla stock",
+    "MU": "Micron Technology stock",
+    "PLTR": "Palantir Technologies stock",
 }
 
 
 def _query(ticker: str) -> str:
     if ticker.upper() in QUERIES:
         return QUERIES[ticker.upper()]
-    name = companies.name_for(ticker) if ticker.upper() in companies.MAG7 else ticker
+    name = companies.name_for(ticker) if ticker.upper() in companies.ALL_COMPANIES else ticker
     return f"{name} stock"
 
 

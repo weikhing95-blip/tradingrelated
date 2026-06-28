@@ -13,6 +13,7 @@ are what warrant an instant push.
 
 from __future__ import annotations
 
+from ..config import INSIDER_THRESHOLD_USD
 from ..schemas import EventType, Materiality, RawItem, Tier
 
 # Default route per event type (before per-item overrides).
@@ -25,7 +26,7 @@ _BASE: dict[EventType, Materiality] = {
     EventType.MANAGEMENT_CHANGE: Materiality.MATERIAL,
     EventType.INDEX_LISTING: Materiality.MATERIAL,
     EventType.EXEC_COMMENTARY: Materiality.MATERIAL,
-    EventType.ANALYST: Materiality.LOW,
+    EventType.ANALYST: Materiality.MATERIAL,
     EventType.PRODUCT_LAUNCH: Materiality.LOW,
     EventType.NEWS: Materiality.LOW,
 }
@@ -37,9 +38,13 @@ def score(item: RawItem, event_type: EventType) -> Materiality:
     # A trading halt is always critical, however it was classified.
     if any(hint in item.headline.lower() for hint in _HALT_HINTS):
         return Materiality.CRITICAL
-    # Routine insider Form 4 → digest, not a push.
-    if item.form_type and item.form_type.startswith("4"):
+    # Routine EDGAR Form 4 → digest (raw filing reference, not an actionable alert).
+    if item.source == "edgar" and item.form_type and item.form_type.startswith("4"):
         return Materiality.LOW
+    # Finnhub insider transactions: push only trades above the dollar threshold.
+    if item.source == "insider":
+        value = item.payload.get("value_usd", 0)
+        return Materiality.MATERIAL if value >= INSIDER_THRESHOLD_USD else Materiality.LOW
     return _BASE.get(event_type, Materiality.LOW)
 
 

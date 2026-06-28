@@ -36,10 +36,20 @@ MAG7: Dict[str, Company] = {
     "TSLA": Company("TSLA", "Tesla, Inc.", "0001318605", "Consumer Discretionary", ["mag7", "sp500", "auto"], ["tesla", "tsla"]),
 }
 
+# Additional tracked companies beyond the Mag7.
+# CIKs verified against SEC EDGAR submissions API.
+EXTENDED: Dict[str, Company] = {
+    "MU": Company("MU", "Micron Technology, Inc.", "0000723125", "Technology", ["semiconductor", "sp500", "tech"], ["micron", "micron technology", "mu"]),
+    "PLTR": Company("PLTR", "Palantir Technologies Inc.", "0001321655", "Technology", ["ai", "software", "sp500", "tech"], ["palantir", "palantir technologies", "pltr"]),
+}
+
+# All companies tracked by the bot. Extend EXTENDED (not MAG7) to add more.
+ALL_COMPANIES: Dict[str, Company] = {**MAG7, **EXTENDED}
+
 
 def get(ticker: str) -> Company:
     """Look up a company by ticker, case-insensitively."""
-    return MAG7[ticker.upper()]
+    return ALL_COMPANIES[ticker.upper()]
 
 
 def cik_for(ticker: str) -> str:
@@ -51,13 +61,13 @@ def name_for(ticker: str) -> str:
 
 
 def all_tickers() -> List[str]:
-    return list(MAG7.keys())
+    return list(ALL_COMPANIES.keys())
 
 
 def aliases_for(ticker: str) -> List[str]:
     """Lowercase names a company is referred to by. Falls back to the ticker
-    (and the leading word of the name) for tickers not in the Mag7 table."""
+    for tickers not in the tracked table."""
     t = ticker.upper()
-    if t in MAG7:
-        return MAG7[t].aliases
+    if t in ALL_COMPANIES:
+        return ALL_COMPANIES[t].aliases
     return [t.lower()]
