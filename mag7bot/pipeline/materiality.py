@@ -9,6 +9,13 @@ Deterministic and auditable — no LLM. Maps an event to one of three routes:
 Form 4 (routine insider) is demoted to the digest even though it's an SEC
 filing; the actual financial reports (8-K results, 10-Q/K) and corporate events
 are what warrant an instant push.
+
+Per-type overrides in ``score`` promote/demote specific items:
+  * Trading halts → CRITICAL regardless of classification.
+  * Form 4 insider filings → LOW (digest).
+  * Mega product launches (iPhone, Blackwell, FSD, …) → CRITICAL.
+  * Significant analyst actions (initiations, target moves with a value) →
+    MATERIAL (base ANALYST stays LOW).
 """
 
 from __future__ import annotations
@@ -25,21 +32,55 @@ _BASE: dict[EventType, Materiality] = {
     EventType.MANAGEMENT_CHANGE: Materiality.MATERIAL,
     EventType.INDEX_LISTING: Materiality.MATERIAL,
     EventType.EXEC_COMMENTARY: Materiality.MATERIAL,
-    EventType.ANALYST: Materiality.LOW,
-    EventType.PRODUCT_LAUNCH: Materiality.LOW,
+    EventType.PRODUCT_LAUNCH: Materiality.MATERIAL,  # mega-launches promoted in score()
+    EventType.ANALYST: Materiality.LOW,  # significant actions promoted in score()
     EventType.NEWS: Materiality.LOW,
 }
 
 _HALT_HINTS = ("trading halt", "halted", "halts trading", "circuit breaker")
 
+# Mega product launches that should override into CRITICAL — flagship hardware
+# and AI model releases from the Mag 7 names.
+_MEGA_LAUNCH_HINTS = (
+    "iphone", "ipad", "macbook", "apple intelligence",  # Apple
+    "blackwell", "hopper", "rtx", "gh", "b200",         # NVIDIA GPU
+    "gemini", "pixel",                                   # Google
+    "gpt", "o3", "o4",                                   # AI models (MSFT/OpenAI)
+    "autopilot", "full self-driving", "fsd", "cybertruck", "model ",  # Tesla
+)
+
+# Significant analyst actions — promote ANALYST back to MATERIAL.
+_SIGNIFICANT_ANALYST_HINTS = (
+    "initiates", "initiating", "initiation",           # new coverage = significant
+    "double upgrade", "double downgrade",
+    "raises target to $", "cuts target to $",          # target change with a value
+    "price target increase", "price target cut",
+    "strong buy", "strong sell",
+)
+
 
 def score(item: RawItem, event_type: EventType) -> Materiality:
+    headline = item.headline.lower()
+
     # A trading halt is always critical, however it was classified.
-    if any(hint in item.headline.lower() for hint in _HALT_HINTS):
+    if any(hint in headline for hint in _HALT_HINTS):
         return Materiality.CRITICAL
     # Routine insider Form 4 → digest, not a push.
     if item.form_type and item.form_type.startswith("4"):
         return Materiality.LOW
+
+    # Mega product launches override into CRITICAL.
+    if event_type == EventType.PRODUCT_LAUNCH:
+        if any(hint in headline for hint in _MEGA_LAUNCH_HINTS):
+            return Materiality.CRITICAL
+        return Materiality.MATERIAL
+
+    # Significant analyst actions get promoted to MATERIAL; otherwise LOW.
+    if event_type == EventType.ANALYST:
+        if any(hint in headline for hint in _SIGNIFICANT_ANALYST_HINTS):
+            return Materiality.MATERIAL
+        return Materiality.LOW
+
     return _BASE.get(event_type, Materiality.LOW)
 
 
