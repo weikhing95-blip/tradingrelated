@@ -61,7 +61,7 @@ RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
 DEFAULT_TELEGRAM_CHANNELS = [
     ("@WalterBloomberg", "Walter Bloomberg"),
     ("@smnewsnow", "SM News"),  # verify username in Telegram before relying on this
-    ("@KobeissiLetter", "The Kobeissi Letter"),  # verify username before relying
+    ("@thekobeissiletter", "The Kobeissi Letter"),
 ]
 
 # Macro series polled from FRED (PRD: CPI, Core CPI, PCE, Core PCE, PPI, claims).
