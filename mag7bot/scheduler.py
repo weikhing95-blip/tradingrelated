@@ -26,6 +26,7 @@ from .config import (
     HALTS_POLL_SECONDS,
     INSIDER_POLL_SECONDS,
     MACRO_POLL_SECONDS,
+    PRICEMOVE_POLL_SECONDS,
     RATINGS_POLL_SECONDS,
     RESEARCH_AGENT_INTERVAL,
     SGT,
@@ -93,6 +94,10 @@ async def poll_halts(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def poll_ratings(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "ratings")
+
+
+async def poll_pricemove(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "pricemove")
 
 
 async def run_research_agent(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -167,6 +172,10 @@ def setup_jobs(application: Application) -> None:
     if "ratings" in application.bot_data["sources"]:
         jq.run_repeating(
             poll_ratings, interval=RATINGS_POLL_SECONDS, first=110, name="poll_ratings"
+        )
+    if "pricemove" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_pricemove, interval=PRICEMOVE_POLL_SECONDS, first=120, name="poll_pricemove"
         )
     if cfg.anthropic_api_key and cfg.enable_research_agent:
         jq.run_repeating(

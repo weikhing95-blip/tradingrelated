@@ -116,6 +116,8 @@ def classify(item: RawItem) -> EventType:
         return EventType.TRADING_HALT
     if item.source == "ratings":
         return EventType.ANALYST  # structured upgrade/downgrade feed
+    if item.source == "pricemove":
+        return EventType.PRICE_MOVE  # computed unusual-move signal
     if item.source == "fed":
         # Fed speeches → exec commentary (MATERIAL); press releases → macro (CRITICAL).
         return EventType.EXEC_COMMENTARY if item.payload.get("feed_type") == "speech" else EventType.MACRO

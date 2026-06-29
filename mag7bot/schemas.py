@@ -53,6 +53,7 @@ class EventType(str, Enum):
     EXEC_COMMENTARY = "exec_commentary"  # CEO/CFO interviews, earnings-call remarks
     MACRO = "macro"  # economic data releases (CPI, PCE, jobless claims, ...)
     TRADING_HALT = "trading_halt"  # exchange trading halt / resumption
+    PRICE_MOVE = "price_move"  # unusual intraday move vs the stock's own baseline
     NEWS = "news"  # unclassified / general
 
     @property
@@ -70,6 +71,7 @@ class EventType(str, Enum):
             EventType.EXEC_COMMENTARY: "🎙",
             EventType.MACRO: "📊",
             EventType.TRADING_HALT: "🛑",
+            EventType.PRICE_MOVE: "📈",
             EventType.NEWS: "📰",
         }[self]
 
@@ -87,6 +89,7 @@ class EventType(str, Enum):
             EventType.EXEC_COMMENTARY: "Exec Commentary",
             EventType.MACRO: "Economic Data",
             EventType.TRADING_HALT: "Trading Halt",
+            EventType.PRICE_MOVE: "Price Move",
             EventType.NEWS: "News",
         }[self]
 

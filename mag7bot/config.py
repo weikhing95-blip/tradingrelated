@@ -50,6 +50,14 @@ INSIDER_POLL_SECONDS = 1800  # Finnhub insider transactions (large trades)
 FED_RSS_POLL_SECONDS = 300   # Federal Reserve RSS (speeches + FOMC press releases)
 HALTS_POLL_SECONDS = 60      # Nasdaq trading-halts RSS (free; time-critical)
 RATINGS_POLL_SECONDS = 600   # Finnhub analyst upgrade/downgrade feed
+PRICEMOVE_POLL_SECONDS = 300  # Yahoo chart API — unusual intraday-move check
+
+# Unusual price-move detector defaults. Flag when |move on the day| is at least
+# MULTIPLIER × the trailing 2-week average daily move AND clears the MIN_PCT
+# floor. LOOKBACK is the number of prior trading sessions in the baseline.
+PRICE_MOVE_MULTIPLIER = 2.0
+PRICE_MOVE_MIN_PCT = 3.0
+PRICE_MOVE_LOOKBACK_DAYS = 10
 
 # Large-insider-trade threshold: trades above this value get an instant push.
 INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
@@ -126,6 +134,11 @@ class Config:
     enable_trading_halts: bool = True   # Nasdaq trading-halts RSS (free, critical)
     enable_analyst_ratings: bool = True  # Finnhub upgrade/downgrade feed (uses Finnhub key)
     enable_article_fetch: bool = True   # fetch full article text for richer LLM summaries (llm mode)
+    enable_price_move: bool = True      # unusual intraday-move alerts (Yahoo chart; free)
+
+    # Price-move detector thresholds (see constants above).
+    price_move_multiplier: float = PRICE_MOVE_MULTIPLIER
+    price_move_min_pct: float = PRICE_MOVE_MIN_PCT
 
     # Freshness: news items older than this (hours) are dropped, and news with
     # no usable timestamp is dropped too. Lower = fresher feed. SEC filings are
@@ -210,7 +223,18 @@ def load_config(dry_run: bool = False) -> Config:
     enable_trading_halts = os.environ.get("ENABLE_TRADING_HALTS", "true").strip().lower() not in _falsy
     enable_analyst_ratings = os.environ.get("ENABLE_ANALYST_RATINGS", "true").strip().lower() not in _falsy
     enable_article_fetch = os.environ.get("ENABLE_ARTICLE_FETCH", "true").strip().lower() not in _falsy
+    enable_price_move = os.environ.get("ENABLE_PRICE_MOVE", "true").strip().lower() not in _falsy
     enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "false").strip().lower() in _truthy
+
+    def _float_env(name: str, default: float) -> float:
+        try:
+            val = float(os.environ.get(name, str(default)))
+        except ValueError:
+            return default
+        return val if val > 0 else default
+
+    price_move_multiplier = _float_env("PRICE_MOVE_MULTIPLIER", PRICE_MOVE_MULTIPLIER)
+    price_move_min_pct = _float_env("PRICE_MOVE_MIN_PCT", PRICE_MOVE_MIN_PCT)
 
     tg_api_id_raw = os.environ.get("TELEGRAM_API_ID", "0").strip() or "0"
     tg_api_id = int(tg_api_id_raw) if tg_api_id_raw.isdigit() else 0
@@ -253,6 +277,9 @@ def load_config(dry_run: bool = False) -> Config:
         enable_trading_halts=enable_trading_halts,
         enable_analyst_ratings=enable_analyst_ratings,
         enable_article_fetch=enable_article_fetch,
+        enable_price_move=enable_price_move,
+        price_move_multiplier=price_move_multiplier,
+        price_move_min_pct=price_move_min_pct,
         telegram_api_id=tg_api_id,
         telegram_api_hash=tg_api_hash,
         telegram_session_path=tg_session,
