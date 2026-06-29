@@ -15,7 +15,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import gzip
+import os
 import time
+from pathlib import Path
 
 from . import db, ingest, publisher as publisher_mod, seed
 from .config import Config, DEFAULT_TELEGRAM_CHANNELS, load_config
@@ -108,6 +112,34 @@ async def preflight(bot, cfg: Config) -> bool:
     return ok
 
 
+def _materialize_session(session_path: Path) -> None:
+    """Write the pyrogram session file from the TELEGRAM_SESSION_B64 env var
+    (gzip+base64) when it isn't already present on disk.
+
+    This lets a platform without a writable file-upload path (e.g. Railway)
+    bootstrap the relay session purely from an environment variable: run
+    ``telegram_setup`` locally once, paste the encoded session into the var,
+    and the bot recreates the file on first boot. A real session already on
+    the volume always wins — we never overwrite it.
+    """
+    if session_path.exists():
+        return
+    blob = os.getenv("TELEGRAM_SESSION_B64", "").strip()
+    if not blob:
+        return
+    try:
+        raw = base64.b64decode(blob)
+        try:
+            raw = gzip.decompress(raw)  # accept gzip+base64 or plain base64
+        except OSError:
+            pass
+        session_path.parent.mkdir(parents=True, exist_ok=True)
+        session_path.write_bytes(raw)
+        print(f"🔐 Restored Telegram session from TELEGRAM_SESSION_B64 → {session_path}")
+    except Exception as exc:  # malformed var must not block startup
+        print(f"⚠️  Could not restore session from TELEGRAM_SESSION_B64: {exc}")
+
+
 async def _post_init(application) -> None:
     cfg = application.bot_data["cfg"]
     await preflight(application.bot, cfg)
@@ -133,8 +165,6 @@ async def _post_init(application) -> None:
     # here must NOT take the bot down, so it's fully guarded.
     if cfg.telegram_api_id and cfg.telegram_api_hash:
         try:
-            from pathlib import Path
-
             from .telegram_monitor import TelegramChannelMonitor
 
             # Must match the path telegram_setup.py writes (telegram_user.session
@@ -144,6 +174,8 @@ async def _post_init(application) -> None:
                 if cfg.telegram_session_path
                 else cfg.db_path.with_name("telegram_user.session")
             )
+            # Bootstrap the session file from an env var if it's not on the volume.
+            _materialize_session(session_path)
             monitor = TelegramChannelMonitor(
                 api_id=cfg.telegram_api_id,
                 api_hash=cfg.telegram_api_hash,
