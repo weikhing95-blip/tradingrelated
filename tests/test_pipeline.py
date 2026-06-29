@@ -389,7 +389,8 @@ def test_format_alert_spec():
     # Line 3: source + status + timestamp condensed onto one row.
     assert "cross-confirmed (2)" in lines[2]
     assert "🕒" in lines[2]
-    # Links are still hyperlinked (publisher label fronts the first one).
+    # Links are still hyperlinked, now behind "link 1 · link 2" (no publisher).
+    assert "Reuters" not in msg  # source/publisher label dropped from line 3
     assert 'href="https://www.reuters.com/a"' in msg
     assert 'href="https://www.bloomberg.com/b"' in msg
     assert "🔗 https://" not in msg  # no raw URL dumped inline
@@ -405,9 +406,10 @@ def test_format_alert_single_link_says_link():
         confirmed_count=1, unconfirmed=True, sent_mode=SentMode.PENDING, ts=0.0,
     )
     msg = formatter.format_alert(ev)
-    # Publisher fronts the link, link itself stays a clean "link" label —
-    # the raw domain only appears inside the href attribute.
-    assert "🔗 Yahoo Finance (" in msg
+    # Line 3 is just the clean "link" label (no publisher) — the raw domain
+    # only ever appears inside the href attribute.
+    assert "🔗 " in msg
+    assert "Yahoo Finance" not in msg  # source/publisher label dropped
     assert ">link</a>" in msg
     assert "news.google.com" not in msg.replace('href="https://news.google.com/rss/articles/CBMiAAA?oc=5"', "")
 
