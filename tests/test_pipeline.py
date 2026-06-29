@@ -96,6 +96,30 @@ def test_classify_word_boundary():
     assert classify.classify(_item("Company issues new guidance")) != EventType.LEGAL_REGULATORY
 
 
+def test_extended_companies_tracked():
+    from mag7bot import companies
+
+    # Regression: ALL_COMPANIES must include EXTENDED (MU, PLTR), not just Mag7.
+    assert "MU" in companies.ALL_COMPANIES
+    assert "PLTR" in companies.ALL_COMPANIES
+    assert companies.cik_for("PLTR") == "0001321655"
+    assert "micron" in companies.aliases_for("MU")
+
+
+def test_telegram_monitor_constructor_signature():
+    # Regression: app wiring must match this signature (it previously didn't,
+    # which would TypeError and crash startup when Telegram creds were set).
+    from pathlib import Path
+
+    from mag7bot.telegram_monitor import TelegramChannelMonitor
+
+    m = TelegramChannelMonitor(
+        api_id=123, api_hash="abc", session_path=Path("/tmp/x.session"),
+        cfg=None, publisher=None, llm_client=None,
+    )
+    assert m is not None
+
+
 def test_relevance_drops_mentioned_not_about():
     from mag7bot.pipeline import relevance
 

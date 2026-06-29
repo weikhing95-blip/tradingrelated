@@ -44,7 +44,7 @@ _HALT_HINTS = ("trading halt", "halted", "halts trading", "circuit breaker")
 # and AI model releases from the Mag 7 names.
 _MEGA_LAUNCH_HINTS = (
     "iphone", "ipad", "macbook", "apple intelligence",  # Apple
-    "blackwell", "hopper", "rtx", "gh", "b200",         # NVIDIA GPU
+    "blackwell", "hopper", "rtx", "gh200", "b200",      # NVIDIA GPU
     "gemini", "pixel",                                   # Google
     "gpt", "o3", "o4",                                   # AI models (MSFT/OpenAI)
     "autopilot", "full self-driving", "fsd", "cybertruck", "model ",  # Tesla

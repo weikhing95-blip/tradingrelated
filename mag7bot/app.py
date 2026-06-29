@@ -117,16 +117,31 @@ async def _post_init(application) -> None:
             f"(no alerts). New events from now on will be pushed/digested."
         )
 
-    # Start Telegram channel monitor if credentials are configured.
+    # Start Telegram channel monitor if credentials are configured. Any failure
+    # here must NOT take the bot down, so it's fully guarded.
     if cfg.telegram_api_id and cfg.telegram_api_hash:
         try:
+            from pathlib import Path
+
             from .telegram_monitor import TelegramChannelMonitor
 
-            monitor = TelegramChannelMonitor(cfg, application.bot_data["publisher"])
+            session_path = (
+                Path(cfg.telegram_session_path)
+                if cfg.telegram_session_path
+                else cfg.db_path.with_name("mag7bot_tg.session")
+            )
+            monitor = TelegramChannelMonitor(
+                api_id=cfg.telegram_api_id,
+                api_hash=cfg.telegram_api_hash,
+                session_path=session_path,
+                cfg=cfg,
+                publisher=application.bot_data["publisher"],
+                llm_client=application.bot_data.get("client"),
+            )
             asyncio.create_task(monitor.start())
-            print("📡 Telegram channel monitor STARTED (pyrogram user client).")
-        except ImportError:
-            print("⚠️  pyrogram not installed — channel monitor disabled. pip install pyrogram TgCrypto")
+            print("📡 Telegram channel monitor STARTING (pyrogram user client).")
+        except Exception as exc:  # ImportError, bad session, etc. — never fatal
+            print(f"⚠️  Telegram channel monitor not started: {exc}")
     else:
         print("📡 Telegram channel monitor OFF (set TELEGRAM_API_ID + TELEGRAM_API_HASH to enable).")
 
