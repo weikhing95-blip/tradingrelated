@@ -5,14 +5,16 @@ never sent. We match against both the item's `publisher` field and its URL
 host, so a wire item is kept whether the source labelled it "Reuters" or only
 gave a reuters.com link.
 
-Matching is substring-based against the lowercase whitelist entries (which mix
-bare names like "reuters" and domains like "reuters.com"); this is deliberately
-lenient on the publisher *name* but the URL host is checked by suffix so
-``evil-reuters.com`` is not accepted as ``reuters.com``.
+Whitelist entries mix bare names ("reuters") and domains ("reuters.com").
+URL hosts are matched by exact/suffix equality so ``evil-reuters.com`` is not
+accepted as ``reuters.com``. Publisher *names* are matched as whole words (not
+substrings), so a label like ``"Reutersclone"`` no longer slips through on the
+``reuters`` entry.
 """
 
 from __future__ import annotations
 
+import re
 from typing import List
 from urllib.parse import urlparse
 
@@ -37,8 +39,9 @@ def approved(publisher: str, url: str, whitelist: List[str]) -> bool:
         if "." in e:
             if host == e or host.endswith("." + e):
                 return True
-        # Name-style entry: substring match on the publisher label.
-        if e and publisher and e in publisher:
+        # Name-style entry: whole-word match on the publisher label, so
+        # "reuters" matches "Reuters" / "Thomson Reuters" but not "reutersbot".
+        elif e and publisher and re.search(r"\b" + re.escape(e) + r"\b", publisher):
             return True
     return False
 

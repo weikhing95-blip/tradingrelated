@@ -31,10 +31,27 @@ from typing import List, Optional
 
 from . import companies, db, ingest
 from .config import Config
+from .pipeline import relevance
 from .schemas import RawItem, Tier
 
 # Cashtag pattern — $NVDA, $AAPL etc.
 _CASHTAG = re.compile(r"\$([A-Z]{1,5})\b")
+
+# Clearly non-market topics. A relayed post matched only by a company *alias*
+# (not a $cashtag) that reads as one of these is almost always a false positive
+# (e.g. "Google" in a privacy-lawsuit-unrelated human-interest story), so it's
+# dropped. Cashtag-confident posts are never dropped on this.
+_OFF_TOPIC = re.compile(
+    r"\b(earthquake|hurricane|typhoon|wildfire|flood|tsunami|plane crash|"
+    r"shooting|celebrity|royal family|world cup|olympics|super bowl|"
+    r"box office|weather|horoscope)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_cashtag(text: str, tickers: List[str]) -> bool:
+    up = text.upper()
+    return any(m.group(1) in tickers for m in _CASHTAG.finditer(up))
 
 
 def _find_ticker(text: str, tickers: List[str]) -> Optional[str]:
@@ -131,9 +148,18 @@ class TelegramChannelMonitor:
                 if not text.strip():
                     return
 
+                # Opinion/listicle/promo posts are noise even from a good channel.
+                first_line = text.strip().splitlines()[0]
+                if relevance.is_low_quality(first_line):
+                    return
+
                 tickers = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
                 ticker = _find_ticker(text, tickers)
                 if ticker is None:
+                    return
+
+                # Alias-only match on a clearly off-topic post → false positive.
+                if _OFF_TOPIC.search(text) and not _has_cashtag(text, tickers):
                     return
 
                 item = _make_raw_item(ticker, text, username, message.id, message.date.timestamp())

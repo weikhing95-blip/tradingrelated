@@ -121,8 +121,10 @@ def classify(item: RawItem) -> EventType:
     text = item.headline.lower()
     for event_type, keywords in _KEYWORD_RULES:
         for kw in keywords:
-            # Word-ish boundary so "sues" doesn't match inside "issues".
-            if re.search(r"\b" + re.escape(kw), text):
+            # Whole-word match (both boundaries) so "sues" doesn't match inside
+            # "issues" and "profit"/"revenue" don't fire on "profitability" /
+            # "revenue-based" growth commentary.
+            if re.search(r"\b" + re.escape(kw) + r"\b", text):
                 return event_type
     # Trade policy / export controls: classified as LEGAL_REGULATORY (MATERIAL push).
     if any(term in text for term in _TRADE_POLICY_TERMS):

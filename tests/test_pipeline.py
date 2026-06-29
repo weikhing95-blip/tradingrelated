@@ -364,6 +364,73 @@ def test_summarize_faithfulness_guard():
     assert summarize._faithful("Company makes acquisition", "Company makes an acquisition deal")
 
 
+def test_summarize_faithfulness_rejects_fabricated_entity():
+    # An invented proper noun (no number involved) must be caught.
+    assert not summarize._faithful(
+        "Apple announces partnership with OpenAI",
+        "Apple declined to comment on AI plans.",
+    )
+    # Pure verb/wording rephrasing with the same entities is allowed.
+    assert summarize._faithful("Nvidia buys Run:ai", "Nvidia to acquire Run:ai startup")
+    # Sentence-initial capitalisation is not treated as a fabricated entity.
+    assert summarize._faithful("Tesla shares rose", "tesla shares rose on the news")
+
+
+class _StubAnthropic:
+    """Minimal stand-in for the Anthropic client used by summarize.choose_summary."""
+
+    def __init__(self, summary):
+        parsed = type("P", (), {"summary": summary})()
+        resp = type("R", (), {"parsed_output": parsed})()
+        self.messages = type("M", (), {"parse": lambda _self, **kw: resp})()
+
+
+def test_summarize_llm_falls_back_on_fabrication():
+    client = _StubAnthropic("Apple announces partnership with OpenAI.")
+    out = summarize.choose_summary(
+        "Apple comments on AI", "Apple declined to comment on AI plans.",
+        mode="llm", client=client, use_llm=True,
+    )
+    assert "OpenAI" not in out  # fabrication rejected → safe rich-verbatim used
+
+
+def test_summarize_llm_used_when_faithful():
+    client = _StubAnthropic("Nvidia buys Run:ai.")
+    out = summarize.choose_summary(
+        "Nvidia to acquire Run:ai", "Nvidia to acquire Run:ai startup in a deal.",
+        mode="llm", client=client, use_llm=True,
+    )
+    assert out == "Nvidia buys Run:ai."
+
+
+def test_whitelist_publisher_whole_word_not_substring():
+    # Whole-word publisher match: a spoof label on a non-whitelisted domain is
+    # rejected, but a legitimate multi-word publisher is kept.
+    spoof = _item("x", publisher="Reutersclone Daily", url="https://spam.example/x")
+    assert not whitelist.is_approved(spoof, WHITELIST_DOMAINS)
+    legit = _item("y", publisher="Thomson Reuters", url="https://spam.example/y")
+    assert whitelist.is_approved(legit, WHITELIST_DOMAINS)
+
+
+def test_classify_whole_word_keywords():
+    # "profitability" must NOT classify as EARNINGS (was a left-boundary leak).
+    assert classify.classify(_item("Apple profitability concerns weigh on shares")) != EventType.EARNINGS
+    # A genuine earnings headline still classifies.
+    assert classify.classify(_item("Apple beats estimates on record revenue")) == EventType.EARNINGS
+
+
+def test_relay_helpers_and_offtopic():
+    from mag7bot import telegram_monitor as tm
+
+    assert tm._find_ticker("$NVDA breaking out", ["NVDA"]) == "NVDA"
+    assert tm._find_ticker("Nvidia ships new chip", ["NVDA"]) == "NVDA"
+    assert tm._has_cashtag("$NVDA up 3%", ["NVDA"]) is True
+    assert tm._has_cashtag("Nvidia up 3%", ["NVDA"]) is False
+    # Off-topic detector fires on clearly non-market topics.
+    assert tm._OFF_TOPIC.search("Massive earthquake hits region") is not None
+    assert tm._OFF_TOPIC.search("Nvidia reports record revenue") is None
+
+
 # --------------------------------------------------------------------------- #
 # formatter                                                                     #
 # --------------------------------------------------------------------------- #

@@ -56,15 +56,50 @@ class _BiteSize(BaseModel):
 _SYSTEM = (
     "You compress financial news into one or two neutral, factual sentences "
     "(≤320 characters) — bite-size, wire-style. Use ONLY facts present in the "
-    "provided headline and text. Do NOT add numbers, names, or claims that are "
-    "not there. No opinion, no investment advice, no hype, no ticker symbols."
+    "provided headline and text. Do NOT add numbers, company/person/product "
+    "names, or claims that are not there, and do NOT strengthen a hedge into a "
+    "certainty (e.g. 'may consider' must not become 'announces'). No opinion, "
+    "no investment advice, no hype, no ticker symbols."
 )
+
+# Capitalised tokens that are generic (not entities), so their presence in a
+# summary is never treated as a fabricated proper noun.
+_GENERIC_CAPS = {
+    "the", "a", "an", "it", "its", "this", "that", "these", "those", "and",
+    "us", "uk", "eu", "ai", "ceo", "cfo", "coo", "cto", "ipo", "etf",
+    "q1", "q2", "q3", "q4", "fed", "gdp", "cpi", "pce", "ppi", "fomc",
+    "wall", "street", "inc", "corp", "co", "ltd", "plc", "group",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december",
+}
+_PROPER = re.compile(r"\b[A-Z][A-Za-z][A-Za-z.&'-]+\b")
 
 
 def _faithful(summary: str, source_text: str) -> bool:
-    """Reject a summary that introduces a number not in the source text."""
+    """Reject a summary that introduces facts absent from the source:
+      - a number not present in the source, or
+      - a proper noun (company / person / product name) not present in the
+        source.
+    Verb and wording rephrasings are allowed — only NEW entities and numbers
+    fail, since those are the dangerous fabrications. On a failure the caller
+    falls back to the safe rich-verbatim text.
+    """
+    src = source_text.lower()
     src_nums = {n.replace(",", "") for n in _NUM.findall(source_text)}
-    return all(n.replace(",", "") in src_nums for n in _NUM.findall(summary))
+    if not all(n.replace(",", "") in src_nums for n in _NUM.findall(summary)):
+        return False
+    stripped = summary.lstrip()
+    for tok in _PROPER.findall(summary):
+        # Sentence-initial capitalisation isn't evidence of an entity.
+        if stripped.startswith(tok):
+            continue
+        low = tok.lower().strip(".&'-")
+        if len(low) < 3 or low in _GENERIC_CAPS:
+            continue
+        if low not in src:  # a name the source never mentioned → fabricated
+            return False
+    return True
 
 
 def _llm_bite_size(headline: str, body: str, client, model: str = HAIKU_MODEL) -> Optional[str]:
