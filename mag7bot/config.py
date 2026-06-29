@@ -140,7 +140,7 @@ class Config:
     telegram_session_path: str = ""   # path to pyrogram .session file (auto-derived if empty)
 
     # Research agent
-    enable_research_agent: bool = True  # weekly autonomous source discovery
+    enable_research_agent: bool = False  # weekly Opus source-discovery agent — OFF by default (costly)
 
     # Mode
     dry_run: bool = False
@@ -210,7 +210,7 @@ def load_config(dry_run: bool = False) -> Config:
     enable_trading_halts = os.environ.get("ENABLE_TRADING_HALTS", "true").strip().lower() not in _falsy
     enable_analyst_ratings = os.environ.get("ENABLE_ANALYST_RATINGS", "true").strip().lower() not in _falsy
     enable_article_fetch = os.environ.get("ENABLE_ARTICLE_FETCH", "true").strip().lower() not in _falsy
-    enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "true").strip().lower() not in _falsy
+    enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "false").strip().lower() in _truthy
 
     tg_api_id_raw = os.environ.get("TELEGRAM_API_ID", "0").strip() or "0"
     tg_api_id = int(tg_api_id_raw) if tg_api_id_raw.isdigit() else 0
