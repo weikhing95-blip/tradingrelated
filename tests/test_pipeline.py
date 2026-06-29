@@ -140,8 +140,9 @@ def test_format_alert_price_move():
                links=["https://www.reuters.com/a"], tier=Tier.WIRE, source_name="Reuters",
                materiality=Materiality.CRITICAL, confirmed_count=1,
                sent_mode=SentMode.PENDING, ts=0.0)
-    msg = formatter.format_alert(ev, price_move="shares +3.2%")
-    assert "📈 shares +3.2%" in msg
+    msg = formatter.format_alert(ev, price_move="+3.2%")
+    assert "$NVDA (+3.2%)" in msg
+    assert "shares" not in msg  # old "shares +x%" phrasing is gone
 
 
 def test_extended_companies_tracked():

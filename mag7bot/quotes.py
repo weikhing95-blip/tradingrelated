@@ -1,8 +1,9 @@
 """Best-effort price-reaction lookup (Finnhub /quote) with a short TTL cache.
 
-Appends a Walter/SM-style price move to alerts (e.g. "shares +2.3%"). Failures
-are swallowed — a missing quote must never block or delay a push. A 60s
-per-symbol cache keeps the firehose from hammering the Finnhub rate limit.
+Returns the day's signed percent change (e.g. "+2.3%"); the formatter renders
+it as "$TICKER (+2.3%)". Failures are swallowed — a missing quote must never
+block or delay a push. A 60s per-symbol cache keeps the firehose from
+hammering the Finnhub rate limit.
 """
 
 from __future__ import annotations
@@ -18,8 +19,8 @@ _CACHE: Dict[str, Tuple[float, str]] = {}
 
 
 async def price_move(symbol: str, api_key: str, now: Optional[float] = None) -> str:
-    """Return a short price-reaction string (daily % change), or "" if
-    unavailable. Uses Finnhub's ``dp`` (percent change on the day)."""
+    """Return the day's signed percent change as a short string (e.g. "+2.3%"),
+    or "" if unavailable. Uses Finnhub's ``dp`` (percent change on the day)."""
     if not symbol or not api_key:
         return ""
     now = time.time() if now is None else now
@@ -36,7 +37,7 @@ async def price_move(symbol: str, api_key: str, now: Optional[float] = None) -> 
             data = resp.json()
         dp = data.get("dp")
         if isinstance(dp, (int, float)) and dp != 0:
-            result = f"shares {dp:+.1f}%"
+            result = f"{dp:+.1f}%"
     except (httpx.HTTPError, ValueError, TypeError):
         result = ""
     _CACHE[sym] = (now, result)
