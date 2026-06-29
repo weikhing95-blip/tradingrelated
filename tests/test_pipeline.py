@@ -144,17 +144,17 @@ def test_24_7_no_quiet_hours(cfg):
     assert ingest.in_quiet_hours(off, three_am_sgt) is False  # 24/7 default
 
 
-def test_format_alert_price_move():
+def test_format_alert_line1_is_ticker_only():
     from mag7bot.schemas import Event, SentMode
     ev = Event(ticker="NVDA", type=EventType.EARNINGS, summary="Q2 beat",
                links=["https://www.reuters.com/a"], tier=Tier.WIRE, source_name="Reuters",
                materiality=Materiality.CRITICAL, confirmed_count=1,
                sent_mode=SentMode.PENDING, ts=0.0)
-    msg = formatter.format_alert(ev, price_move="+3.2%")
+    msg = formatter.format_alert(ev)
     lines = msg.split("\n")
-    assert lines[0] == "$NVDA (+3.2%)"  # price reaction sits beside the ticker on line 1
-    assert msg.count("$NVDA") == 1       # ticker appears exactly once in the body
-    assert "shares" not in msg           # old "shares +x%" phrasing is gone
+    assert lines[0] == "$NVDA"        # ticker only — no price reaction
+    assert "%" not in lines[0]        # price movement removed entirely
+    assert msg.count("$NVDA") == 1    # cashtag appears exactly once
 
 
 def test_extended_companies_tracked():

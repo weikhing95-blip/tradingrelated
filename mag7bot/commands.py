@@ -391,7 +391,7 @@ async def cmd_remove_source(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 @owner_only
 async def cmd_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """List monitored Telegram channels."""
+    """List monitored Telegram channels + live relay/membership status."""
     cfg = _cfg(context)
     rows = db.list_telegram_channels(cfg.db_path)
     if not rows:
@@ -399,9 +399,38 @@ async def cmd_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "No Telegram channels monitored yet.\nUse /add_channel @username to add one."
         )
         return
-    lines = ["📡 Monitored Telegram channels:", ""]
+
+    bot_data = context.application.bot_data
+    task = bot_data.get("monitor_task")
+    monitor = bot_data.get("monitor")
+    alive = task is not None and not task.done()
+
+    lines = ["📡 Monitored Telegram channels:"]
+    if not (cfg.telegram_api_id and cfg.telegram_api_hash):
+        lines.append("Relay: OFF (set TELEGRAM_API_ID + TELEGRAM_API_HASH).")
+    else:
+        lines.append(f"Relay monitor: {'🟢 running' if alive else '🔴 not running'}")
+    lines.append("")
+
+    # Live membership check (the account must be JOINED to receive messages).
+    status = {}
+    if alive and monitor is not None:
+        try:
+            usernames = [r["username"] for r in rows]
+            for u, joined, detail in await monitor.check_membership(usernames):
+                status[u.lower()] = (joined, detail)
+        except Exception as exc:  # never let a check break the command
+            lines.append(f"(membership check unavailable: {type(exc).__name__})")
+
     for r in rows:
-        lines.append(f"• {r['username']}  ({r['name']})  — added by {r['added_by']}")
+        u = r["username"]
+        base = f"• {u}  ({r['name']})"
+        if u.lower() in status:
+            joined, detail = status[u.lower()]
+            base += "  — ✅ joined" if joined else f"  — ⚠️ {detail}"
+        lines.append(base)
+    if status:
+        lines.append("\n✅ = your account receives this channel's posts.")
     await update.message.reply_text("\n".join(lines))
 
 

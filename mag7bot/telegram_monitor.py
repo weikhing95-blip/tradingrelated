@@ -122,6 +122,29 @@ class TelegramChannelMonitor:
         self._cfg = cfg
         self._publisher = publisher
         self._llm_client = llm_client
+        self._app = None  # live pyrogram Client once started (for /channels checks)
+
+    async def check_membership(self, usernames):
+        """Live-verify each channel via the running pyrogram client.
+
+        Returns a list of (username, joined, detail). ``joined`` is True only if
+        the account is a participant (a prerequisite for receiving the channel's
+        messages). Returns ('', False, reason) entries if the client isn't up."""
+        app = self._app
+        if app is None:
+            return [("", False, "relay client not running")]
+        results = []
+        for u in usernames:
+            try:
+                chat = await app.get_chat(u)
+                try:
+                    await app.get_chat_member(chat.id, "me")
+                    results.append((u, True, getattr(chat, "title", "") or ""))
+                except Exception:
+                    results.append((u, False, "resolves but account NOT joined"))
+            except Exception as exc:
+                results.append((u, False, f"cannot resolve: {type(exc).__name__}"))
+        return results
 
     async def start(self) -> None:
         """Connect the pyrogram client and start listening. Runs forever."""
@@ -205,6 +228,7 @@ class TelegramChannelMonitor:
 
         try:
             await app.start()
+            self._app = app  # expose to /channels for live membership checks
             channels = db.list_telegram_channel_usernames(cfg.db_path)
             print(f"📡 Telegram channel monitor connected. Watching: {', '.join(channels) or '(none yet — use /add_channel)'}")
             # Keep running until the event loop stops.
@@ -213,6 +237,7 @@ class TelegramChannelMonitor:
             print(f"⚠️  Telegram channel monitor failed to start: {exc}")
             print("   Run `python -m mag7bot.telegram_setup` to authenticate.")
         finally:
+            self._app = None
             try:
                 await app.stop()
             except Exception:

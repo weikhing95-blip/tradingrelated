@@ -2,13 +2,12 @@
 
 Per-alert layout (HTML, hyperlinks behind short labels):
 
-    {$TICKER} [(+x%)]
+    {$TICKER}
     {one-line summary, ≤200 chars}
     🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
-The first line is the ticker (the *who*) with the optional price reaction
-beside it. The second line is the bite-size summary (the *what*) — the ticker
-is never repeated there. The third line condenses provenance, confirmation
+The first line is the ticker (the *who*). The second line is the bite-size
+summary (the *what*). The third line condenses provenance, confirmation
 status, and the timestamp into one row.
 
 Daily Digest layout: critical events first, then ECONOMY (macro + Fed),
@@ -82,25 +81,20 @@ def _status_token(event: Event) -> str:
     return ""
 
 
-def format_alert(event: Event, price_move: str = "") -> str:
+def format_alert(event: Event) -> str:
     """Render a single event into the MarketBrief alert format.
 
-        {$TICKER} [(+x%)]
+        {$TICKER}
         {summary}
         🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
-
-    ``price_move`` (the signed percent, e.g. "+2.3%") is rendered beside the
-    ticker on line 1 as "$TICKER (+2.3%)" when supplied — see ``quotes.price_move``.
     """
-    # ── Line 1: ticker (+ price reaction beside it) — no label, no emoji ────
+    # ── Line 1: ticker only — no label, no emoji, no price ─────────────────
     if event.type == EventType.MACRO or event.ticker.upper() == "MACRO":
         head = "MACRO"
     else:
         head = f"${_esc(event.ticker.upper())}"
-        if price_move:
-            head += f" ({_esc(price_move)})"
 
-    # ── Line 2: bite-size summary (ticker is never repeated here) ──────────
+    # ── Line 2: bite-size summary ──────────────────────────────────────────
     summary_line = _esc(event.summary)
 
     # ── Line 3: link(s) + status + timestamp (one condensed line) ─────────
