@@ -913,3 +913,61 @@ def test_macro_tagged_item_classifies_and_scores():
     )
     assert classify.classify(it) == EventType.MACRO
     assert materiality.score(it, EventType.MACRO) == Materiality.MATERIAL
+
+
+# --------------------------------------------------------------------------- #
+# Article fetch + extraction (richer LLM summaries)                             #
+# --------------------------------------------------------------------------- #
+
+_ARTICLE_HTML = """
+<html><head>
+  <meta property="og:description" content="Short blurb that is the fallback.">
+</head><body>
+  <nav><p>Home About Subscribe Sign in</p></nav>
+  <script>var x = "ignore me entirely";</script>
+  <article>
+    <h1>Susquehanna hikes Micron target to $2,000 after record-breaking earnings</h1>
+    <p>Susquehanna has raised its price target on Micron to $2,000 from $1,750 after
+       the memory chipmaker posted record-breaking fiscal third-quarter results.</p>
+    <p>Micron reported revenue of $41.46 billion and adjusted EPS of $25.11, well
+       above consensus of $35.91 billion and $20.86.</p>
+  </article>
+  <footer><p>Copyright 2026 — all rights reserved, terms and conditions apply.</p></footer>
+</body></html>
+"""
+
+
+def test_article_extract_text_pulls_body_skips_boilerplate():
+    from mag7bot import article
+
+    text = article.extract_text(_ARTICLE_HTML)
+    assert "$2,000 from $1,750" in text
+    assert "$41.46 billion" in text and "$25.11" in text
+    assert "ignore me entirely" not in text   # <script> skipped
+    assert "Subscribe" not in text             # <nav> skipped
+
+
+def test_article_extract_meta_fallback_when_thin():
+    from mag7bot import article
+
+    thin = '<html><head><meta name="description" content="' + "x" * 120 + '"></head><body></body></html>'
+    out = article.extract_text(thin)
+    assert out.startswith("x" * 80)  # falls back to meta description
+
+
+def test_enrich_article_bodies_replaces_blurb(cfg, monkeypatch):
+    import asyncio
+    from mag7bot import article, ingest
+
+    async def fake_fetch(url, timeout=8.0, max_chars=4000):
+        return "FULL ARTICLE TEXT " * 20  # long, richer than the blurb
+
+    monkeypatch.setattr(article, "fetch_article_text", fake_fetch)
+
+    news = _item("Micron news", source="finnhub", url="https://www.reuters.com/x", ts=1_700_000_000.0)
+    news.body = "tiny blurb"
+    structured = _item("Apple files 8-K", source="edgar", form_type="8-K",
+                       tier=Tier.PRIMARY, url="https://www.sec.gov/x")
+    asyncio.run(ingest.enrich_article_bodies(cfg, [news, structured]))
+    assert news.body.startswith("FULL ARTICLE TEXT")  # news enriched
+    assert structured.body == ""                        # structured untouched

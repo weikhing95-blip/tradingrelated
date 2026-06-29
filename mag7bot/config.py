@@ -125,6 +125,7 @@ class Config:
     enable_fed_rss: bool = True   # Fed speeches + FOMC press releases (free RSS)
     enable_trading_halts: bool = True   # Nasdaq trading-halts RSS (free, critical)
     enable_analyst_ratings: bool = True  # Finnhub upgrade/downgrade feed (uses Finnhub key)
+    enable_article_fetch: bool = True   # fetch full article text for richer LLM summaries (llm mode)
 
     # Freshness: news items older than this (hours) are dropped, and news with
     # no usable timestamp is dropped too. Lower = fresher feed. SEC filings are
@@ -208,6 +209,7 @@ def load_config(dry_run: bool = False) -> Config:
     enable_fed_rss = os.environ.get("ENABLE_FED_RSS", "true").strip().lower() not in _falsy
     enable_trading_halts = os.environ.get("ENABLE_TRADING_HALTS", "true").strip().lower() not in _falsy
     enable_analyst_ratings = os.environ.get("ENABLE_ANALYST_RATINGS", "true").strip().lower() not in _falsy
+    enable_article_fetch = os.environ.get("ENABLE_ARTICLE_FETCH", "true").strip().lower() not in _falsy
     enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "true").strip().lower() not in _falsy
 
     tg_api_id_raw = os.environ.get("TELEGRAM_API_ID", "0").strip() or "0"
@@ -250,6 +252,7 @@ def load_config(dry_run: bool = False) -> Config:
         enable_fed_rss=enable_fed_rss,
         enable_trading_halts=enable_trading_halts,
         enable_analyst_ratings=enable_analyst_ratings,
+        enable_article_fetch=enable_article_fetch,
         telegram_api_id=tg_api_id,
         telegram_api_hash=tg_api_hash,
         telegram_session_path=tg_session,
