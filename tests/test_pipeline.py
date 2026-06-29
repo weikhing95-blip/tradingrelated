@@ -1044,6 +1044,74 @@ def test_extract_text_rejects_boilerplate_meta():
     assert article.extract_text(html) == ""  # boilerplate meta → no content
 
 
+def test_extract_text_pulls_jsonld_article_body():
+    """Modern JS-rendered pages keep the body in a JSON-LD block, not <p> tags.
+    The extractor must read it (and prefer it over a thin meta description)."""
+    from mag7bot import article
+
+    html = (
+        '<html><head>'
+        '<meta property="og:description" content="Nvidia raised its outlook.">'
+        '<script type="application/ld+json">'
+        '{"@type":"NewsArticle","headline":"Nvidia raises outlook",'
+        '"articleBody":"Nvidia said data-center revenue rose 28% to $41.1 billion '
+        'in the quarter and guided to continued growth as customers adopt Rubin."}'
+        '</script></head><body><div id="app"><p>Loading…</p></div></body></html>'
+    )
+    text = article.extract_text(html)
+    assert "28% to $41.1 billion" in text          # full body recovered
+    assert text != "Nvidia raised its outlook."    # not the thin meta blurb
+
+
+def test_extract_text_jsonld_handles_graph_wrapper():
+    """Publishers often wrap objects in an @graph list — articleBody still found."""
+    from mag7bot import article
+
+    html = (
+        '<html><head><script type="application/ld+json">'
+        '{"@context":"https://schema.org","@graph":['
+        '{"@type":"Organization","name":"Reuters"},'
+        '{"@type":"NewsArticle","articleBody":"Micron reported revenue of $41.46 '
+        'billion and adjusted EPS of $25.11, well above consensus estimates."}]}'
+        '</script></head><body></body></html>'
+    )
+    text = article.extract_text(html)
+    assert "$41.46 billion" in text and "$25.11" in text
+
+
+def test_extract_text_jsonld_ignores_malformed_block():
+    """A broken JSON-LD block must not crash extraction — fall through to prose."""
+    from mag7bot import article
+
+    html = (
+        '<html><head><script type="application/ld+json">{not valid json,,,</script>'
+        '</head><body><article><p>Tesla deliveries rose to a record in the '
+        'quarter, the company said, beating Wall Street expectations handily.</p>'
+        '</article></body></html>'
+    )
+    text = article.extract_text(html)
+    assert "Tesla deliveries rose to a record" in text
+
+
+def test_extract_text_prefers_article_region_over_page():
+    """When an <article> region exists, its prose is used and surrounding page
+    chrome (promo blocks, related links) is excluded."""
+    from mag7bot import article
+
+    html = (
+        '<html><body>'
+        '<div><p>Sign up for our newsletter to get the best stock tips daily now.</p></div>'
+        '<article><p>Apple unveiled a new iPhone with a faster chip and improved '
+        'battery life, the company announced at its fall product event today.</p>'
+        '</article>'
+        '<div><p>Related: ten other gadgets you should consider buying this year.</p></div>'
+        '</body></html>'
+    )
+    text = article.extract_text(html)
+    assert "Apple unveiled a new iPhone" in text
+    assert "newsletter" not in text and "Related" not in text
+
+
 def test_relevance_drops_price_move_filler():
     from mag7bot.pipeline import relevance as rel
 
