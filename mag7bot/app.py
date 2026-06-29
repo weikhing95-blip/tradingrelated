@@ -258,6 +258,7 @@ def run_live(cfg: Config) -> None:
 
     from . import commands, scheduler
     from .sources import (
+        AlpacaNewsSource,
         AnalystRatingsSource,
         EarningsSource,
         EdgarSource,
@@ -311,6 +312,11 @@ def run_live(cfg: Config) -> None:
     if cfg.enable_analyst_ratings:
         sources["ratings"] = AnalystRatingsSource(cfg.finnhub_api_key)
         print("🟡 Analyst-ratings source ENABLED (Finnhub upgrade/downgrade feed).")
+    if cfg.enable_alpaca and cfg.alpaca_api_key and cfg.alpaca_secret_key:
+        sources["alpaca"] = AlpacaNewsSource(cfg.alpaca_api_key, cfg.alpaca_secret_key)
+        print("📰 Alpaca (Benzinga) news source ENABLED (real-time, full article bodies).")
+    elif cfg.enable_alpaca:
+        print("📰 Alpaca news source OFF (set ALPACA_API_KEY + ALPACA_SECRET_KEY to enable).")
     if cfg.enable_price_move:
         sources["pricemove"] = PriceMoveSource(
             multiplier=cfg.price_move_multiplier, min_pct=cfg.price_move_min_pct

@@ -1083,6 +1083,89 @@ def test_pricemove_event_bypasses_news_filters(cfg):
 
 
 # --------------------------------------------------------------------------- #
+# Alpaca (Benzinga) news                                                        #
+# --------------------------------------------------------------------------- #
+
+_ALPACA_PAYLOAD = {
+    "news": [
+        {
+            "id": 123,
+            "headline": "Palantir teams with Nvidia to deploy Nemotron models",
+            "summary": "PLTR and NVDA partner on sovereign AI.",
+            "content": (
+                "<p>Palantir entered a strategic initiative with Nvidia to deploy "
+                "AI and Nemotron open models in sovereign environments.</p>"
+                "<p>The offering targets U.S. government agencies and critical "
+                "infrastructure operators, including classified deployments.</p>"
+            ),
+            "created_at": "2026-06-29T11:30:00Z",
+            "url": "https://www.benzinga.com/news/123/palantir-nvidia",
+            "symbols": ["PLTR", "NVDA", "SPY"],
+            "source": "benzinga",
+        },
+        {
+            "id": 124,
+            "headline": "7 AI Stocks To Buy Right Now",  # listicle filler → dropped
+            "content": "<p>Here are some stocks.</p>",
+            "created_at": "2026-06-29T10:00:00Z",
+            "url": "https://www.benzinga.com/news/124",
+            "symbols": ["NVDA"],
+        },
+    ]
+}
+
+
+def test_alpaca_parse_expands_symbols_and_filters():
+    from mag7bot.sources.alpaca import _parse
+
+    items = _parse(_ALPACA_PAYLOAD, ["NVDA", "PLTR"])
+    # Story 123 → one item each for PLTR and NVDA (SPY off-watchlist); story 124
+    # is a listicle → dropped by the low-quality filter.
+    assert len(items) == 2
+    assert {it.ticker for it in items} == {"NVDA", "PLTR"}
+    assert {it.source_item_id for it in items} == {"123-NVDA", "123-PLTR"}
+    for it in items:
+        assert it.source == "alpaca" and it.tier == Tier.WIRE
+        assert it.url == "https://www.benzinga.com/news/123/palantir-nvidia"
+        assert it.publisher == "benzinga"
+        assert it.published_at > 0
+
+
+def test_alpaca_parse_uses_cleaned_content_as_body():
+    from mag7bot.sources.alpaca import _parse
+
+    it = _parse(_ALPACA_PAYLOAD, ["NVDA"])[0]
+    # Full article body (HTML-stripped) carries the substance for the summarizer.
+    assert "sovereign environments" in it.body
+    assert "<p>" not in it.body  # HTML stripped
+
+
+def test_alpaca_event_bypasses_news_filters_and_posts(cfg):
+    """Alpaca is a trusted structured source: it skips the whitelist + headline-
+    relevance gate (Benzinga tags symbols itself) and posts with a body-rich
+    summary."""
+    from mag7bot import ingest
+    from mag7bot.sources.alpaca import _parse
+
+    now = 1_700_000_000.0
+    items = [it for it in _parse(_ALPACA_PAYLOAD, ["NVDA"]) if it.ticker == "NVDA"]
+    for it in items:
+        it.published_at = now  # keep within the freshness window for the test
+    events = ingest.build_events(cfg, items, now)
+    assert len(events) == 1
+    assert events[0].ticker == "NVDA"
+    assert events[0].summary  # non-empty, drawn from the Benzinga content/summary
+
+
+def test_alpaca_to_epoch_parses_iso():
+    from mag7bot.sources.alpaca import _to_epoch
+
+    assert _to_epoch("2026-06-29T11:30:00Z") > 0
+    assert _to_epoch("") == 0.0
+    assert _to_epoch("not-a-date") == 0.0
+
+
+# --------------------------------------------------------------------------- #
 # Relay: macro/Fed fallback                                                     #
 # --------------------------------------------------------------------------- #
 

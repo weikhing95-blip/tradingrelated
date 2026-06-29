@@ -18,6 +18,7 @@ from telegram.ext import Application, ContextTypes
 
 from . import ingest, publisher as publisher_mod, research
 from .config import (
+    ALPACA_POLL_SECONDS,
     EARNINGS_POLL_SECONDS,
     EDGAR_POLL_SECONDS,
     FED_RSS_POLL_SECONDS,
@@ -100,6 +101,10 @@ async def poll_pricemove(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "pricemove")
 
 
+async def poll_alpaca(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "alpaca")
+
+
 async def run_research_agent(context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_data = context.application.bot_data
     cfg = bot_data["cfg"]
@@ -176,6 +181,10 @@ def setup_jobs(application: Application) -> None:
     if "pricemove" in application.bot_data["sources"]:
         jq.run_repeating(
             poll_pricemove, interval=PRICEMOVE_POLL_SECONDS, first=120, name="poll_pricemove"
+        )
+    if "alpaca" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_alpaca, interval=ALPACA_POLL_SECONDS, first=130, name="poll_alpaca"
         )
     if cfg.anthropic_api_key and cfg.enable_research_agent:
         jq.run_repeating(
