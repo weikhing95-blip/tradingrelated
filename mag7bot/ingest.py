@@ -11,11 +11,12 @@ so it's testable against a temp DB. ``run_cycle`` adds fetching + publishing.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
-from . import db
+from . import article, db
 from .config import SGT, Config
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
@@ -246,6 +247,29 @@ def build_events(
     return events
 
 
+async def enrich_article_bodies(
+    cfg: Config, items: Sequence[RawItem], concurrency: int = 5
+) -> None:
+    """Fetch the full article for each free-text news item and replace its short
+    blurb with the extracted body, so the LLM summarizer has real substance to
+    compress (the headline/blurb often omit the key numbers — e.g. a price-target
+    or earnings figure). Best-effort and concurrency-capped; structured sources
+    (filings/earnings/macro/relay) are skipped — they're already self-contained.
+    """
+    targets = [it for it in items if it.source in relevance.NEWS_SOURCES and it.url]
+    if not targets:
+        return
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _one(it: RawItem) -> None:
+        async with sem:
+            text = await article.fetch_article_text(it.url)
+        if text and len(text) > len(it.body or ""):
+            it.body = text
+
+    await asyncio.gather(*(_one(it) for it in targets), return_exceptions=True)
+
+
 async def prime(cfg: Config, sources: Sequence[Source]) -> int:
     """Cold-start baseline: mark all currently-available items as seen WITHOUT
     alerting, so the first deploy doesn't flood the channel with days-old news.
@@ -304,6 +328,12 @@ async def run_cycle(
         for item in fetched:
             db.mark_seen(cfg.db_path, item.source, item.source_item_id, item.ticker)
         raw.extend(fetched)
+
+    # Enrich news items with the full article text so LLM summaries carry the
+    # article's substance, not just the headline (LLM mode only — verbatim mode
+    # never fetches). Best-effort; failures leave the original blurb.
+    if cfg.summary_mode == "llm" and cfg.enable_article_fetch:
+        await enrich_article_bodies(cfg, raw)
 
     events = build_events(cfg, raw, now, client)
 
