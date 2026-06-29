@@ -83,6 +83,10 @@ def score(item: RawItem, event_type: EventType) -> Materiality:
     # the actual print — it shouldn't override quiet hours.
     if item.source == "earnings" and item.payload.get("preview"):
         return Materiality.MATERIAL
+    # Macro/Fed relayed from a monitored channel is commentary, not an official
+    # release — material (push), but not CRITICAL like a real CPI/PCE print.
+    if item.source == "telegram" and event_type == EventType.MACRO:
+        return Materiality.MATERIAL
 
     # Mega product launches override into CRITICAL.
     if event_type == EventType.PRODUCT_LAUNCH:

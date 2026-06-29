@@ -49,9 +49,25 @@ _OFF_TOPIC = re.compile(
 )
 
 
+# US macro / Fed relevance — relayed posts with no watchlist ticker but clear
+# macro content still forward (tagged MACRO), matching the /goal's "US macro &
+# Fed" scope. Kept deliberately specific so general world news doesn't leak in.
+_MACRO_RE = re.compile(
+    r"\b(fed|fomc|federal reserve|powell|rate hike|rate cut|rate decision|"
+    r"interest rate|rate-hike|rate-cut|basis points|bps|cpi|core cpi|inflation|"
+    r"pce|ppi|jobless claims|nonfarm|payrolls|jobs report|unemployment rate|"
+    r"\bgdp\b|treasury yield|tariff|tariffs)\b",
+    re.IGNORECASE,
+)
+
+
 def _has_cashtag(text: str, tickers: List[str]) -> bool:
     up = text.upper()
     return any(m.group(1) in tickers for m in _CASHTAG.finditer(up))
+
+
+def _is_macro(text: str) -> bool:
+    return _MACRO_RE.search(text) is not None
 
 
 def _find_ticker(text: str, tickers: List[str]) -> Optional[str]:
@@ -156,10 +172,14 @@ class TelegramChannelMonitor:
                 tickers = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
                 ticker = _find_ticker(text, tickers)
                 if ticker is None:
-                    return
-
+                    # No watchlist company — relay anyway if it's US macro/Fed.
+                    if _is_macro(text):
+                        ticker = "MACRO"
+                    else:
+                        return
                 # Alias-only match on a clearly off-topic post → false positive.
-                if _OFF_TOPIC.search(text) and not _has_cashtag(text, tickers):
+                # (MACRO relays are intentional, so the off-topic guard skips them.)
+                elif _OFF_TOPIC.search(text) and not _has_cashtag(text, tickers):
                     return
 
                 item = _make_raw_item(ticker, text, username, message.id, message.date.timestamp())

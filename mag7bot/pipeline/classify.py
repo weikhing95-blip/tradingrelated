@@ -121,6 +121,10 @@ def classify(item: RawItem) -> EventType:
         return EventType.EXEC_COMMENTARY if item.payload.get("feed_type") == "speech" else EventType.MACRO
     if item.source == "edgar" and item.form_type:
         return _from_form(item.form_type, item.headline)
+    # Macro-tagged items from any source (e.g. a Fed/CPI post relayed from a
+    # monitored Telegram channel) classify as MACRO.
+    if item.ticker.upper() == "MACRO":
+        return EventType.MACRO
 
     text = item.headline.lower()
     for event_type, keywords in _KEYWORD_RULES:

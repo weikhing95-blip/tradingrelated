@@ -225,10 +225,12 @@ media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
 > watchlist (Mag 7 + MU/PLTR) plus US macro & the Fed — matching the speed and
 > density of **Walter Bloomberg / SM News** in a consistent house voice.
 > Each alert: `$TICKER` first, a bite-size fact-forward summary (hard numbers
-> when available), the **price reaction** (e.g. "shares +2.3%"), a verified
-> `(link)`, and a timestamp. **24/7**, **firehose** volume, deduped/cross-confirmed,
-> with curated-channel relay (Walter/SM/Kobeissi) re-summarised into the house
-> format. Knobs: `FEED_VOLUME`, `QUIET_HOURS`, `SUMMARY_MODE`.
+> when available), the **price reaction** beside the ticker (e.g. `$NVDA (+2.3%)`),
+> a verified `(link)`, and a timestamp. **24/7**, **firehose** volume,
+> deduped/cross-confirmed, with curated-channel relay (Walter/SM/Kobeissi)
+> re-summarised into the house format — relaying both watchlist-company posts and
+> **US macro/Fed** posts (Fed, CPI, rates, jobs, tariffs → tagged `MACRO`). Knobs:
+> `FEED_VOLUME`, `QUIET_HOURS`, `SUMMARY_MODE`.
 
 ```
 SEC EDGAR + Finnhub ─► whitelist ─► classify ─► dedup ─► materiality
