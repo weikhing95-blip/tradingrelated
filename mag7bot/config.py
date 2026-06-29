@@ -57,12 +57,10 @@ INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
 # Autonomous research agent: how often to run source discovery (in seconds).
 RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
 
-# Default Telegram channels to seed on first start (comma-separated usernames).
-# Verify usernames before adding — @WalterBloomberg is high-confidence;
-# SM News username should be confirmed via the Telegram app.
+# Default Telegram channels to seed on first start.
 DEFAULT_TELEGRAM_CHANNELS = [
     ("@WalterBloomberg", "Walter Bloomberg"),
-    ("@smnewsnow", "SM News"),  # verify username in Telegram before relying on this
+    ("@SM_News_24h", "SM News"),  # verified handle (t.me/SM_News_24h)
     ("@thekobeissiletter", "The Kobeissi Letter"),
 ]
 
