@@ -4,7 +4,7 @@ Per-alert layout (HTML, hyperlinks behind short labels):
 
     {$TICKER}
     {one-line summary, ≤200 chars}
-    🔗 {publisher} (link)  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
+    🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
 The first line is just the ticker (the *who*). The second line is the
 bite-size summary itself (the *what*). The third line condenses provenance,
@@ -50,28 +50,6 @@ def _links_html(links: list) -> str:
     return " · ".join(link_html(u, f"link {i + 1}") for i, u in enumerate(links))
 
 
-def _publishers_links_html(event: Event) -> str:
-    """Render ``{publisher} (link)`` for each link, joined with " · ".
-
-    Falls back to a single ``link`` token when no publisher is known."""
-    links = event.links
-    if not links:
-        return ""
-    # One publisher in event.source_name; if multiple links we still only know
-    # one publisher name reliably, so reuse it across or fall back to "link N".
-    pub = event.source_name.strip()
-    if len(links) == 1:
-        if pub:
-            return f"🔗 {_esc(pub)} ({link_html(links[0])})"
-        return f"🔗 {link_html(links[0])}"
-    parts = []
-    for i, url in enumerate(links):
-        label = pub if pub and i == 0 else f"link {i + 1}"
-        parts.append(f"{_esc(label)} ({link_html(url, 'link')})" if pub and i == 0
-                     else f"{link_html(url, label)}")
-    return "🔗 " + " · ".join(parts)
-
-
 def _sgt_time(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=SGT).strftime("%d %b, %H:%M SGT")
 
@@ -108,7 +86,7 @@ def format_alert(event: Event, price_move: str = "") -> str:
 
         {$TICKER}
         {summary}  [· {price move}]
-        🔗 {publisher} (link)  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
+        🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
     ``price_move`` (e.g. "shares +2.3%") is appended to the summary line when
     supplied — see ``quotes.price_move``.
@@ -124,10 +102,10 @@ def format_alert(event: Event, price_move: str = "") -> str:
     if price_move:
         summary_line += f"  ·  📈 {_esc(price_move)}"
 
-    # ── Line 3: source + status + timestamp (one condensed line) ──────────
+    # ── Line 3: link(s) + status + timestamp (one condensed line) ─────────
     parts: List[str] = []
     if event.links:
-        parts.append(_publishers_links_html(event))
+        parts.append(f"🔗 {_links_html(event.links)}")
     elif event.source_name:
         parts.append(f"🔗 {_esc(event.source_name)}")
 
