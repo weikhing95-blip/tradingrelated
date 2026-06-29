@@ -235,7 +235,7 @@ no social media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`
 > `FEED_VOLUME`, `QUIET_HOURS`, `SUMMARY_MODE`.
 
 ```
-EDGAR · Finnhub · earnings · macro · Fed · halts · ratings · Google/Yahoo
+EDGAR · Finnhub · earnings · macro · Fed · halts · ratings · price-moves · Google/Yahoo
         + channel relay (Walter Bloomberg / SM News / Kobeissi)
                  │
                  ▼
@@ -340,6 +340,15 @@ Beyond per-company news, the bot covers what moves these names:
   `$NVDA Morgan Stanley upgrades NVDA to Overweight (from Equal-Weight)` — more
   reliable than guessing from headlines. Genuine rating changes are material;
   reiterations are dropped. Toggle with `ENABLE_ANALYST_RATINGS`.
+- **Unusual price moves (`pricemove`, free):** polls the Yahoo chart API and
+  flags a name when its move *on the day* is large **relative to its own recent
+  behaviour** — at least `PRICE_MOVE_MULTIPLIER`× (default **2×**) the trailing
+  2-week average daily move *and* above a `PRICE_MOVE_MIN_PCT` floor (default
+  **3%**), e.g. `$NVDA — up 6.2% on the day — 2.4× its 2-week average daily move`.
+  One alert per name per day. This is a *computed* signal, deliberately distinct
+  from the auto-generated "X Moves 5%" news articles the relevance filter drops
+  (those are stale, substance-free filler). Material (push), not a quiet-hours
+  override. Toggle with `ENABLE_PRICE_MOVE`.
 
 Structured sources (EDGAR, earnings, macro, halts, ratings) bypass the publisher
 whitelist and the company-relevance gate — they're trusted data, not free-text

@@ -266,6 +266,7 @@ def run_live(cfg: Config) -> None:
         GoogleNewsSource,
         InsiderSource,
         MacroSource,
+        PriceMoveSource,
         TradingHaltsSource,
         YahooNewsSource,
     )
@@ -310,6 +311,14 @@ def run_live(cfg: Config) -> None:
     if cfg.enable_analyst_ratings:
         sources["ratings"] = AnalystRatingsSource(cfg.finnhub_api_key)
         print("🟡 Analyst-ratings source ENABLED (Finnhub upgrade/downgrade feed).")
+    if cfg.enable_price_move:
+        sources["pricemove"] = PriceMoveSource(
+            multiplier=cfg.price_move_multiplier, min_pct=cfg.price_move_min_pct
+        )
+        print(
+            f"📈 Price-move source ENABLED (Yahoo chart; ≥{cfg.price_move_multiplier:g}× "
+            f"2-week avg & ≥{cfg.price_move_min_pct:g}% floor)."
+        )
     application.bot_data["sources"] = sources
 
     commands.register(application)

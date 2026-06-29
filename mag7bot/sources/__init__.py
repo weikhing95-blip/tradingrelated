@@ -18,6 +18,7 @@ from .google_news import GoogleNewsSource
 from .halts import TradingHaltsSource
 from .insider import InsiderSource
 from .macro import MacroSource
+from .pricemove import PriceMoveSource
 from .ratings import AnalystRatingsSource
 from .yahoo_news import YahooNewsSource
 
@@ -31,6 +32,7 @@ __all__ = [
     "GoogleNewsSource",
     "InsiderSource",
     "MacroSource",
+    "PriceMoveSource",
     "TradingHaltsSource",
     "YahooNewsSource",
 ]

@@ -29,6 +29,7 @@ _BASE: dict[EventType, Materiality] = {
     EventType.MA: Materiality.CRITICAL,
     EventType.MACRO: Materiality.CRITICAL,  # CPI/PCE/claims — market-moving
     EventType.TRADING_HALT: Materiality.CRITICAL,  # exchange halt — always critical
+    EventType.PRICE_MOVE: Materiality.MATERIAL,  # unusual move — push, not quiet-hours override
     EventType.SEC_FILING: Materiality.MATERIAL,
     EventType.LEGAL_REGULATORY: Materiality.MATERIAL,
     EventType.MANAGEMENT_CHANGE: Materiality.MATERIAL,
@@ -78,6 +79,11 @@ def score(item: RawItem, event_type: EventType) -> Materiality:
     # *changes* (upgrades/downgrades/initiations), so they're material — unlike
     # headline-guessed analyst chatter, which stays LOW unless a hint promotes it.
     if item.source == "ratings":
+        return Materiality.MATERIAL
+    # Computed unusual-move signal: material (worth a push) but not CRITICAL — a
+    # big move alone shouldn't override quiet hours; the cause (filing/earnings)
+    # would arrive as its own critical event.
+    if item.source == "pricemove":
         return Materiality.MATERIAL
     # Upcoming-earnings heads-up: material (worth a push), but not CRITICAL like
     # the actual print — it shouldn't override quiet hours.

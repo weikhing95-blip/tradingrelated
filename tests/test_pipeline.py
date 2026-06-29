@@ -948,6 +948,94 @@ def test_ratings_parser_changes_only_and_material():
 
 
 # --------------------------------------------------------------------------- #
+# Price-move detector                                                           #
+# --------------------------------------------------------------------------- #
+
+# ~1%/day baseline series (oldest→newest), 11 closes → 10 prior daily returns.
+_CALM_CLOSES = [100, 101, 100, 102, 101, 103, 102, 104, 103, 105, 104]
+
+
+def test_pricemove_fires_above_multiple_and_floor():
+    from mag7bot.sources import pricemove as pm
+
+    # +6% on a ~1.4% baseline → clears both the 2× bar and the 3% floor.
+    verdict = pm.assess_move(_CALM_CLOSES, 110.4, 104.0, multiplier=2.0, min_pct=3.0, lookback=10)
+    assert verdict is not None
+    move, baseline, ratio = verdict
+    assert round(move * 100, 1) == 6.2 and ratio > 2.0
+
+
+def test_pricemove_respects_floor():
+    from mag7bot.sources import pricemove as pm
+
+    # +2% is statistically unusual here but below the 3% floor → no alert.
+    assert pm.assess_move(_CALM_CLOSES, 106.08, 104.0, multiplier=2.0, min_pct=3.0, lookback=10) is None
+
+
+def test_pricemove_respects_multiplier_independently():
+    from mag7bot.sources import pricemove as pm
+
+    # Volatile name: ~5%/day baseline. A 4% move clears the 3% floor but is BELOW
+    # 2× the baseline (~10%), so the multiplier gate (not the floor) rejects it.
+    volatile = [100, 105, 100, 105, 100, 105, 100, 105, 100, 105, 100]
+    assert pm.assess_move(volatile, 104.0, 100.0, multiplier=2.0, min_pct=3.0, lookback=10) is None
+
+
+def test_pricemove_needs_enough_history():
+    from mag7bot.sources import pricemove as pm
+
+    assert pm.assess_move([100, 101], 120, 101, multiplier=2.0, min_pct=3.0, lookback=10) is None
+    assert pm.assess_move(_CALM_CLOSES, None, 104.0, multiplier=2.0, min_pct=3.0, lookback=10) is None
+
+
+def test_pricemove_parse_chart_and_classify():
+    from mag7bot.pipeline import classify, materiality
+    from mag7bot.sources import pricemove as pm
+
+    payload = {
+        "chart": {"result": [{
+            "meta": {"regularMarketPrice": 110.4, "previousClose": 104.0,
+                     "regularMarketTime": 1_700_000_000},
+            "indicators": {"quote": [{"close": _CALM_CLOSES + [110.4]}]},
+        }], "error": None}
+    }
+    closes, current, prev_close, as_of = pm.parse_chart(payload)
+    assert current == 110.4 and prev_close == 104.0 and len(closes) == 12
+
+    item = pm.build_item("NVDA", 0.062, 2.4, as_of)
+    assert item.source == "pricemove" and item.ticker == "NVDA"
+    assert "up 6.2%" in item.headline and "2.4×" in item.headline
+    # Structured signal: routes as PRICE_MOVE → MATERIAL (push, not quiet-override).
+    assert classify.classify(item) == EventType.PRICE_MOVE
+    assert materiality.score(item, EventType.PRICE_MOVE) == Materiality.MATERIAL
+
+
+def test_pricemove_parse_chart_handles_bad_payload():
+    from mag7bot.sources import pricemove as pm
+
+    assert pm.parse_chart({}) == ([], None, None, 0.0)
+    assert pm.parse_chart({"chart": {"result": []}}) == ([], None, None, 0.0)
+
+
+def test_pricemove_event_bypasses_news_filters(cfg):
+    """A price-move item must reach the channel as a structured event — it is not
+    a news article, so the whitelist/relevance gates (and the "X Moves %" filler
+    filter) must not touch it."""
+    from mag7bot import db, ingest
+    from mag7bot.sources import pricemove as pm
+
+    now = 1_700_000_000.0
+    item = pm.build_item("NVDA", 0.062, 2.4, now)
+    events = ingest.build_events(cfg, [item], now)
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.type == EventType.PRICE_MOVE and ev.ticker == "NVDA"
+    assert "6.2%" in ev.summary
+    assert ev.materiality == Materiality.MATERIAL
+    assert db.recent_events(cfg.db_path, cfg.feed_id, "NVDA", now - 3600)
+
+
+# --------------------------------------------------------------------------- #
 # Relay: macro/Fed fallback                                                     #
 # --------------------------------------------------------------------------- #
 
