@@ -75,6 +75,24 @@ _GENERIC_CAPS = {
     "september", "october", "november", "december",
 }
 _PROPER = re.compile(r"\b[A-Z][A-Za-z][A-Za-z.&'-]+\b")
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _stem(word: str) -> str:
+    """Reduce a word to a coarse stem so common inflections compare equal:
+    possessives (Apple's→apple) and plurals (GPUs→gpu, companies→company). This
+    is deliberately crude — it only needs to stop the faithfulness guard from
+    flagging a benign plural/possessive of a name that IS in the source as a
+    fabrication; it is not a linguistic stemmer."""
+    w = word.lower().strip(".&'-")
+    w = w.replace("'s", "").replace("’s", "")  # straight + curly possessive
+    if len(w) > 4 and w.endswith("ies"):
+        return w[:-3] + "y"
+    if len(w) > 4 and w.endswith("es"):
+        return w[:-2]
+    if len(w) > 3 and w.endswith("s"):
+        return w[:-1]
+    return w
 
 
 def _faithful(summary: str, source_text: str) -> bool:
@@ -83,13 +101,16 @@ def _faithful(summary: str, source_text: str) -> bool:
       - a proper noun (company / person / product name) not present in the
         source.
     Verb and wording rephrasings are allowed — only NEW entities and numbers
-    fail, since those are the dangerous fabrications. On a failure the caller
-    falls back to the safe rich-verbatim text.
+    fail, since those are the dangerous fabrications. Inflected forms of a name
+    that IS in the source (plural/possessive, e.g. "GPUs" for "GPU", "Apple's"
+    for "Apple") are accepted via stem comparison, so accurate rephrases aren't
+    discarded. On a failure the caller falls back to the safe rich-verbatim text.
     """
     src = source_text.lower()
     src_nums = {n.replace(",", "") for n in _NUM.findall(source_text)}
     if not all(n.replace(",", "") in src_nums for n in _NUM.findall(summary)):
         return False
+    src_stems = {_stem(w) for w in _WORD.findall(src)}
     stripped = summary.lstrip()
     for tok in _PROPER.findall(summary):
         # Sentence-initial capitalisation isn't evidence of an entity.
@@ -98,8 +119,11 @@ def _faithful(summary: str, source_text: str) -> bool:
         low = tok.lower().strip(".&'-")
         if len(low) < 3 or low in _GENERIC_CAPS:
             continue
-        if low not in src:  # a name the source never mentioned → fabricated
-            return False
+        # Present as a literal substring (conservative) OR as a matching stem
+        # (so "GPUs"/"Apple's" match "GPU"/"Apple"). Otherwise it's invented.
+        if low in src or _stem(low) in src_stems:
+            continue
+        return False
     return True
 
 

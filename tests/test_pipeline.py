@@ -456,6 +456,18 @@ def test_summarize_faithfulness_rejects_fabricated_entity():
     assert summarize._faithful("Tesla shares rose", "tesla shares rose on the news")
 
 
+def test_summarize_faithfulness_allows_inflected_forms():
+    """A plural/possessive of a name that IS in the source must not be flagged
+    as fabricated — that benign mismatch was silently downgrading good LLM
+    summaries to bare headlines."""
+    src = "Nvidia introduced its Rubin GPU line at the GTC conference; Apple responded."
+    # Plural "GPUs" for source "GPU", possessive "Apple's" for "Apple" → faithful.
+    assert summarize._faithful("Nvidia debuted its Rubin GPUs at GTC", src)
+    assert summarize._faithful("Apple's response followed the Rubin GPU reveal", src)
+    # A genuinely new name is still rejected (stemming must not over-match).
+    assert not summarize._faithful("Nvidia debuted Rubin GPUs, pressuring AMD", src)
+
+
 class _StubAnthropic:
     """Minimal stand-in for the Anthropic client used by summarize.choose_summary."""
 
