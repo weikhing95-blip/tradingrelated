@@ -171,4 +171,9 @@ class Event(BaseModel):
     )
     sent_mode: SentMode = SentMode.PENDING
     ts: float = Field(description="Event time, Unix epoch seconds (UTC).")
+    dedup_key: str = Field(
+        default="",
+        description="Normalised original headline, for cross-cycle dedup. The "
+        "summary is a paraphrase, so dedup must match against this, not summary.",
+    )
     id: Optional[int] = Field(default=None, description="DB row id once persisted.")

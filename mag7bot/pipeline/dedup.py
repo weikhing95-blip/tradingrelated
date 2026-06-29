@@ -41,10 +41,28 @@ def normalize(headline: str, ticker: str) -> str:
     return " ".join(tokens)
 
 
+JACCARD_THRESHOLD = 0.6
+
+
+def _jaccard(a: str, b: str) -> float:
+    """Token-set overlap |A∩B| / |A∪B|. Order-independent, so it catches the
+    same story reworded with a different word order across outlets — where
+    SequenceMatcher (sequence-sensitive) falls below threshold."""
+    sa, sb = set(a.split()), set(b.split())
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
 def similar(a: str, b: str) -> bool:
+    """Two normalised headlines describe the same story. Either a high
+    sequence ratio OR high token-overlap qualifies — the two metrics fail on
+    different rewordings, so OR-ing them catches more true duplicates."""
     if not a or not b:
         return False
-    return SequenceMatcher(None, a, b).ratio() >= SIMILARITY_THRESHOLD
+    if SequenceMatcher(None, a, b).ratio() >= SIMILARITY_THRESHOLD:
+        return True
+    return _jaccard(a, b) >= JACCARD_THRESHOLD
 
 
 def collapse(items: List[RawItem]) -> List[List[RawItem]]:
@@ -70,9 +88,20 @@ def collapse(items: List[RawItem]) -> List[List[RawItem]]:
 
 
 def find_existing(headline: str, ticker: str, recent: List[Event]) -> Optional[Event]:
-    """Find an already-stored event (within the window) the headline matches."""
+    """Find an already-stored event (within the window) the headline matches.
+
+    Compares against each event's stored ``dedup_key`` (the normalised original
+    headline). The ``summary`` is a paraphrase / article-body compression and no
+    longer resembles the headline, so matching against it silently missed
+    paraphrased duplicates — hence the dedicated key. Pre-migration rows have an
+    empty key; for those we fall back to the (weaker) summary comparison so old
+    events still dedup rather than throwing.
+    """
     n = normalize(headline, ticker)
     for ev in recent:
-        if ev.ticker == ticker and similar(n, normalize(ev.summary, ticker)):
+        if ev.ticker != ticker:
+            continue
+        key = ev.dedup_key or normalize(ev.summary, ticker)
+        if similar(n, key):
             return ev
     return None

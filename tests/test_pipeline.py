@@ -328,6 +328,53 @@ def test_dedup_does_not_cross_tickers():
     assert len(groups) == 2
 
 
+def test_dedup_matches_reordered_headline_via_jaccard():
+    """Same facts, different word order across outlets — SequenceMatcher's
+    sequence ratio dips below threshold, but token-overlap (Jaccard) catches
+    it, so the two collapse into one story."""
+    a = _item("Nvidia unveils Blackwell GPU architecture at GTC keynote")
+    b = _item("At GTC keynote, Nvidia unveils its Blackwell GPU architecture")
+    assert dedup.similar(
+        dedup.normalize(a.headline, "NVDA"), dedup.normalize(b.headline, "NVDA")
+    )
+
+
+def test_find_existing_matches_on_dedup_key_not_summary():
+    """The stored summary is a paraphrase that no longer resembles the headline;
+    dedup must match against the event's dedup_key (normalised headline)."""
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    headline = "Nvidia to acquire Run:ai in a deal"
+    ev = Event(
+        ticker="NVDA",
+        type=EventType.MA,
+        summary="The chipmaker is buying an Israeli orchestration firm.",  # unlike headline
+        tier=Tier.WIRE,
+        materiality=Materiality.CRITICAL,
+        ts=1_700_000_000.0,
+        dedup_key=dedup.normalize(headline, "NVDA"),
+    )
+    # A reworded re-report of the same story still matches via dedup_key.
+    assert dedup.find_existing("NVIDIA to acquire Run:ai in deal", "NVDA", [ev]) is ev
+
+
+def test_find_existing_falls_back_to_summary_for_premigration_rows():
+    """Rows written before the dedup_key column existed have an empty key; we
+    fall back to the (weaker) summary comparison so they still dedup."""
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    ev = Event(
+        ticker="NVDA",
+        type=EventType.MA,
+        summary="Nvidia to acquire Run:ai in a deal",
+        tier=Tier.WIRE,
+        materiality=Materiality.CRITICAL,
+        ts=1_700_000_000.0,
+        dedup_key="",  # pre-migration
+    )
+    assert dedup.find_existing("Nvidia to acquire Run:ai in deal", "NVDA", [ev]) is ev
+
+
 # --------------------------------------------------------------------------- #
 # materiality                                                                   #
 # --------------------------------------------------------------------------- #
@@ -739,6 +786,8 @@ def test_build_events_cross_confirm_updates_not_duplicates(cfg):
     assert len(recent) == 1
     assert recent[0].confirmed_count == 2
     assert len(recent[0].links) == 2
+    # The normalised headline is persisted so later cycles can dedup against it.
+    assert recent[0].dedup_key and "acquire" in recent[0].dedup_key
 
 
 def test_build_events_same_article_across_tickers_posts_once(cfg):

@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS events (
     confirmed_count INTEGER NOT NULL DEFAULT 1,
     unconfirmed     INTEGER NOT NULL DEFAULT 0,
     sent_mode       TEXT NOT NULL DEFAULT 'pending',
-    ts              REAL NOT NULL
+    ts              REAL NOT NULL,
+    dedup_key       TEXT NOT NULL DEFAULT ''  -- normalised headline, for dedup
 );
 CREATE INDEX IF NOT EXISTS idx_events_ticker_ts ON events (ticker, ts);
 CREATE INDEX IF NOT EXISTS idx_events_sentmode ON events (sent_mode);
@@ -136,6 +137,17 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
 def init_db(path: Path) -> None:
     with connect(path) as conn:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotent column additions for DBs created before a column existed.
+    `CREATE TABLE IF NOT EXISTS` never alters an existing table, so a volume
+    that predates a new column needs an explicit ALTER (guarded by a column
+    check so it's a no-op on fresh DBs)."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
+    if "dedup_key" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN dedup_key TEXT NOT NULL DEFAULT ''")
 
 
 # --------------------------------------------------------------------------- #
@@ -357,6 +369,7 @@ def _row_to_event(row: sqlite3.Row) -> Event:
         unconfirmed=bool(row["unconfirmed"]),
         sent_mode=SentMode(row["sent_mode"]),
         ts=row["ts"],
+        dedup_key=(row["dedup_key"] if "dedup_key" in row.keys() else ""),
     )
 
 
@@ -365,8 +378,9 @@ def insert_event(path: Path, feed_id: int, event: Event) -> int:
         cur = conn.execute(
             """INSERT INTO events
                    (feed_id, ticker, type, summary, links, tier, source_name,
-                    materiality, confirmed_count, unconfirmed, sent_mode, ts)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    materiality, confirmed_count, unconfirmed, sent_mode, ts,
+                    dedup_key)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 feed_id,
                 event.ticker,
@@ -380,6 +394,7 @@ def insert_event(path: Path, feed_id: int, event: Event) -> int:
                 int(event.unconfirmed),
                 event.sent_mode.value,
                 event.ts,
+                event.dedup_key,
             ),
         )
         return int(cur.lastrowid)
