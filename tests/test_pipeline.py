@@ -7,6 +7,7 @@ materiality, formatting and the source parsers — plus an end-to-end
 
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -633,6 +634,50 @@ def test_google_news_parser_and_whitelist():
 def test_google_news_query_overrides():
     assert "Alphabet" in google_news._query("GOOGL")
     assert google_news._query("NVDA") == "NVIDIA stock"
+
+
+def test_gnews_article_id_extraction():
+    assert google_news._gnews_article_id(
+        "https://news.google.com/rss/articles/CBMiABC123?oc=5"
+    ) == "CBMiABC123"
+    assert google_news._gnews_article_id(
+        "https://news.google.com/articles/XYZ789"
+    ) == "XYZ789"
+    # A non-article Google URL (or a real publisher URL) yields no id.
+    assert google_news._gnews_article_id("https://www.reuters.com/tech/x") == ""
+
+
+def test_gnews_decoding_params_parse():
+    html = '<c-wiz><div data-n-a-sig="SIG_ABC" data-n-a-ts="1700000000">x</div></c-wiz>'
+    sig, ts = google_news._parse_decoding_params(html)
+    assert sig == "SIG_ABC" and ts == "1700000000"
+    # Missing attributes → empty (decoder then bails, falls back to the link).
+    assert google_news._parse_decoding_params("<html>no params</html>") == ("", "")
+
+
+def test_gnews_batch_payload_shape():
+    payload = google_news._build_batch_payload("CBMiABC", "SIG", "1700000000")
+    assert "f.req" in payload
+    outer = json.loads(payload["f.req"])
+    # [[["Fbv4je", "<inner-json>", null, "generic"]]]
+    rpc = outer[0][0]
+    assert rpc[0] == "Fbv4je" and rpc[3] == "generic"
+    inner = json.loads(rpc[1])
+    assert inner[0] == "garturlreq"
+    assert inner[-3] == "CBMiABC" and inner[-2] == 1700000000 and inner[-1] == "SIG"
+
+
+def test_gnews_batch_response_extracts_url():
+    # Mimic Google's anti-JSON-prefixed, chunked batchexecute body.
+    real = "https://www.reuters.com/technology/nvidia-record-2026-06-29/"
+    body = (
+        ")]}'\n\n"
+        '[["wrb.fr","Fbv4je","[\\"garturlres\\",\\"' + real + '\\"]",null,null,null,"generic"]]'
+    )
+    assert google_news._parse_batch_response(body) == real
+    # Garbage / scheme change → "" (caller falls back, never crashes).
+    assert google_news._parse_batch_response(")]}'\n\nnot json at all") == ""
+    assert google_news._parse_batch_response("") == ""
 
 
 _YAHOO_RSS = """<?xml version="1.0" encoding="UTF-8"?>

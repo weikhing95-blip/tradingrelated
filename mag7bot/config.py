@@ -127,8 +127,8 @@ class Config:
     db_path: Path
 
     # Sources (optional)
-    enable_google_news: bool = False
-    enable_yahoo_news: bool = False
+    enable_google_news: bool = True   # whitelist-filtered aggregator; links decoded to publishers
+    enable_yahoo_news: bool = True    # Yahoo Finance per-ticker news (free wire, real URLs)
     enable_insider: bool = True   # Finnhub large-insider-trade alerts (uses Finnhub key)
     enable_fed_rss: bool = True   # Fed speeches + FOMC press releases (free RSS)
     enable_trading_halts: bool = True   # Nasdaq trading-halts RSS (free, critical)
@@ -216,8 +216,8 @@ def load_config(dry_run: bool = False) -> Config:
         raise RuntimeError("SUMMARY_MODE=llm requires ANTHROPIC_API_KEY.")
     _truthy = ("1", "true", "yes", "on")
     _falsy = ("0", "false", "no", "off")
-    enable_google_news = os.environ.get("ENABLE_GOOGLE_NEWS", "").strip().lower() in _truthy
-    enable_yahoo_news = os.environ.get("ENABLE_YAHOO_NEWS", "").strip().lower() in _truthy
+    enable_google_news = os.environ.get("ENABLE_GOOGLE_NEWS", "true").strip().lower() not in _falsy
+    enable_yahoo_news = os.environ.get("ENABLE_YAHOO_NEWS", "true").strip().lower() not in _falsy
     enable_insider = os.environ.get("ENABLE_INSIDER", "true").strip().lower() not in _falsy
     enable_fed_rss = os.environ.get("ENABLE_FED_RSS", "true").strip().lower() not in _falsy
     enable_trading_halts = os.environ.get("ENABLE_TRADING_HALTS", "true").strip().lower() not in _falsy

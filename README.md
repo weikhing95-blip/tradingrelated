@@ -397,14 +397,13 @@ verified link + timestamp. Two modes (`SUMMARY_MODE`):
   sends the owner a one-time DM; a broken source is isolated so it never aborts
   the polling cycle.
 
-## Optional: Yahoo Finance (breadth source)
+## Yahoo Finance (breadth wire)
 
-Set `ENABLE_YAHOO_NEWS=true` to add Yahoo Finance's per-ticker headline RSS as a
-supplementary Tier-2 source. Off by default; toggle anytime. Links are direct
-(no redirect wrapper) and the query is per-ticker, so it's lower-noise than
-Google News; it's whitelist-filtered and dedup cross-confirms with Finnhub.
-*(The Yahoo RSS endpoint is undocumented and historically flaky — the source
-fails soft if it's unavailable.)*
+Yahoo Finance's per-ticker headline RSS is **on by default** (`ENABLE_YAHOO_NEWS`,
+free, no key) as a supplementary Tier-2 wire. Links are direct (no redirect
+wrapper) so the article extractor reads them well; it's whitelist-filtered and
+dedup cross-confirms with Finnhub/Google News. *(The Yahoo RSS endpoint is
+undocumented and historically flaky — the source fails soft if it's unavailable.)*
 
 ## Source-research agent + extensible whitelist
 
@@ -424,21 +423,23 @@ lives in `mag7bot/data/whitelist_domains.txt` (edit without touching code).
 Use `/diag` anytime to live-probe every configured source and see how many items
 each returns — handy for confirming connectivity when the channel is quiet.
 
-## Optional: Google News (breadth aggregator)
+## Google News (breadth aggregator)
 
-Set `ENABLE_GOOGLE_NEWS=true` to add the undocumented Google News RSS feed as a
-supplementary Tier-2 source (PRD §4, F11). It's **off by default** and safe to
-toggle on/off anytime — it's a breadth safety net behind the dedicated APIs, not
-a backbone.
+The Google News RSS feed is **on by default** (`ENABLE_GOOGLE_NEWS`, free) as a
+breadth source behind the dedicated APIs (PRD §4, F11). Toggle off anytime.
 
 Because Google News aggregates *everyone*, two safeguards apply automatically:
 the **domain whitelist is re-applied** to each item's actual publisher (from the
-feed's `<source>` element), and the `news.google.com` redirect links are
-**best-effort resolved** to the canonical publisher URL. Items from
-non-whitelisted publishers are dropped; overlapping stories **cross-confirm**
-with Finnhub via the existing dedup rather than duplicating. Enabling it on an
-already-running bot won't replay old news — the new source is primed silently on
-the next start (same cold-start logic as a fresh deploy).
+feed's `<source>` element), and each link is **resolved to the canonical
+publisher URL** — first by following the redirect, then (for modern opaque
+`news.google.com/articles/<token>` links, which embed no real URL) by **decoding
+the token** via Google's internal batchexecute RPC. Once resolved to the real
+publisher, the article extractor (JSON-LD + main-content) reads it like any other
+wire. The decode is **best-effort**: if Google changes its scheme it degrades to
+"skip the link," never an error. Items from non-whitelisted publishers are
+dropped; overlapping stories **cross-confirm** with Finnhub/Yahoo via dedup
+rather than duplicating. Hard-paywalled publishers (WSJ/FT/Barron's) still can't
+be read — they're not whitelisted as article sources for that reason.
 
 > Caveats (per the PRD): the feed is undocumented and can change without notice,
 > and it's marked personal/non-commercial — fine for a single owner reading
