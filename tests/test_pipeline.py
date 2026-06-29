@@ -993,3 +993,26 @@ def test_extract_text_rejects_boilerplate_meta():
             'up-to-date news coverage, aggregated from sources all over the world '
             'by Google News."></head><body></body></html>')
     assert article.extract_text(html) == ""  # boilerplate meta → no content
+
+
+def test_relevance_drops_price_move_filler():
+    from mag7bot.pipeline import relevance as rel
+
+    # Auto-generated price-move pieces are dropped.
+    for junk in [
+        "Microsoft (MSFT) Moves -5.7%: What You Should Know",
+        "Why NVIDIA (NVDA) Stock Is Up 3%",
+        "Tesla (TSLA) Stock Falls 4% in Afternoon Trading",
+        "Apple gains 2.3% as market rallies",
+        "Meta surges 6% to a new high",
+    ]:
+        assert rel.is_low_quality(junk) is True, junk
+
+    # Genuine company news still passes.
+    for ok in [
+        "NVIDIA to acquire Run:ai in $700M deal",
+        "Microsoft beats Q3 estimates on cloud strength",
+        "Apple unveils new MacBook lineup",
+        "Tesla recalls 1.2 million vehicles over software fault",
+    ]:
+        assert rel.is_low_quality(ok) is False, ok

@@ -36,6 +36,15 @@ _LOW_QUALITY = [
     r"\bmotley\s+fool\b",
     r"\bprediction\b",
     r"\b(could|will)\s+make\s+you\b",
+    # Auto-generated price-move filler (e.g. "MSFT Moves -5.7%: What You Should
+    # Know", "Why NVDA Stock Is Up 3%", "Tesla Stock Falls 4%"). These reflect a
+    # past move, not new information; the real substance (earnings, deals) comes
+    # through the structured sources.
+    r"\bmoves?\s+[+\-−]?\d",            # "Moves -5.7%", "Moves 5%"
+    r"\b(stock|shares?|is|are)\s+(up|down)\s+[+\-−]?\d",
+    r"\b(up|down|gains?|loses?|adds?|sheds?)\s+\d+(\.\d+)?\s*%",
+    r"\b(falls?|rises?|drops?|jumps?|slips?|sinks?|tumbles?|surges?|climbs?|plunges?|soars?)\s+\d+(\.\d+)?\s*%",
+    r"\bwhat\s+(you\s+should|to)\s+know\b",
 ]
 _LOW_QUALITY_RE = [re.compile(p, re.IGNORECASE) for p in _LOW_QUALITY]
 
