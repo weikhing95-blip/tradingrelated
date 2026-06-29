@@ -1,13 +1,20 @@
-"""Earnings source — actuals vs estimates (Finnhub earnings calendar).
+"""Earnings source — upcoming preview + actuals vs estimates (Finnhub calendar).
 
-Turns a reported quarter into a bite-size snippet:
+Two emissions per fiscal quarter, off Finnhub's ``/calendar/earnings`` (the
+existing Finnhub key):
+
+  Preview (a few days before the report, once):
+
+    $AAPL Q3 2026 earnings expected Thu 31 Jul (after close) — consensus
+    EPS $1.42, Rev $85.9B est
+
+  Actuals (when the company reports):
 
     $AAPL Q2 2026 earnings — EPS $1.52 vs $1.50 est ✅ beat · Rev $94.8B vs
     $94.5B est ✅ beat
 
-Uses Finnhub's ``/calendar/earnings`` (the existing Finnhub key). An item is
-emitted once per (symbol, fiscal quarter) when the actuals are populated, so we
-post when a company *reports* — not when it's merely scheduled.
+The preview uses a distinct ``…-preview`` id so you still get the actuals later,
+and each is emitted only once (idempotent via ``is_seen``).
 """
 
 from __future__ import annotations
@@ -23,7 +30,10 @@ from .base import SeenFn, Source
 
 EARNINGS_URL = "https://finnhub.io/api/v1/calendar/earnings"
 LOOKBACK_DAYS = 4
-LOOKAHEAD_DAYS = 1
+LOOKAHEAD_DAYS = 3  # also the earnings-preview lead time (days before a report)
+
+# Finnhub `hour` code → human label.
+_HOUR_LABEL = {"bmo": "before open", "amc": "after close", "dmh": "during market hours"}
 
 
 def _money(value: Optional[float]) -> str:
@@ -67,25 +77,56 @@ def _snippet(row: Dict[str, Any]) -> str:
     return f"{period} — {detail}"
 
 
+def _fmt_date(date_str: Optional[str]) -> str:
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").strftime("%a %d %b")
+    except (TypeError, ValueError):
+        return date_str or "soon"
+
+
+def _preview_snippet(row: Dict[str, Any]) -> str:
+    q, y = row.get("quarter"), row.get("year")
+    period = f"Q{q} {y} earnings" if q and y else "Earnings"
+    when = _fmt_date(row.get("date"))
+    hour = _HOUR_LABEL.get((row.get("hour") or "").lower(), "")
+    when_str = when + (f" ({hour})" if hour else "")
+    parts: List[str] = []
+    eps_e = row.get("epsEstimate")
+    if eps_e is not None:
+        parts.append(f"EPS ${eps_e:.2f}")
+    rev_e = row.get("revenueEstimate")
+    if rev_e is not None:
+        parts.append(f"Rev {_money(rev_e)}")
+    cons = (" — consensus " + ", ".join(parts) + " est") if parts else ""
+    return f"{period} expected {when_str}{cons}"
+
+
 def _parse(ticker: str, payload: Dict[str, Any]) -> List[RawItem]:
     items: List[RawItem] = []
+    sym = ticker.upper()
     for row in payload.get("earningsCalendar", []):
-        # Only emit once actuals are in (the company has reported).
-        if row.get("epsActual") is None and row.get("revenueActual") is None:
-            continue
         q, y = row.get("quarter"), row.get("year")
-        item_id = f"{ticker.upper()}-{y}Q{q}"
+        reported = row.get("epsActual") is not None or row.get("revenueActual") is not None
+        if reported:
+            item_id, headline, preview = f"{sym}-{y}Q{q}", _snippet(row), False
+        elif row.get("date"):
+            # Scheduled but not yet reported → a one-time upcoming-earnings heads-up.
+            item_id, headline, preview = f"{sym}-{y}Q{q}-preview", _preview_snippet(row), True
+        else:
+            continue  # no actuals and no date — nothing useful to say yet
+        payload_row = dict(row)
+        payload_row["preview"] = preview
         items.append(
             RawItem(
                 source="earnings",
                 source_item_id=item_id,
-                ticker=ticker.upper(),
+                ticker=sym,
                 tier=Tier.WIRE,
-                headline=_snippet(row),
-                url=f"https://finnhub.io/quote/{ticker.upper()}",
+                headline=headline,
+                url=f"https://finnhub.io/quote/{sym}",
                 publisher="Finnhub Earnings",
                 published_at=time.time(),
-                payload=row,
+                payload=payload_row,
             )
         )
     return items

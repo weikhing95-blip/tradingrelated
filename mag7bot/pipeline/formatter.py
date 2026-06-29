@@ -2,13 +2,14 @@
 
 Per-alert layout (HTML, hyperlinks behind short labels):
 
-    {$TICKER}
+    {$TICKER} [(+x%)]
     {one-line summary, ≤200 chars}
     🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
-The first line is just the ticker (the *who*). The second line is the
-bite-size summary itself (the *what*). The third line condenses provenance,
-confirmation status, and the timestamp into one row.
+The first line is the ticker (the *who*) with the optional price reaction
+beside it. The second line is the bite-size summary (the *what*) — the ticker
+is never repeated there. The third line condenses provenance, confirmation
+status, and the timestamp into one row.
 
 Daily Digest layout: critical events first, then ECONOMY (macro + Fed),
 then BY COMPANY for the rest. See ``format_digest`` for details.
@@ -84,23 +85,23 @@ def _status_token(event: Event) -> str:
 def format_alert(event: Event, price_move: str = "") -> str:
     """Render a single event into the MarketBrief alert format.
 
-        {$TICKER}
-        {summary}  [· ${TICKER} (+x%)]
+        {$TICKER} [(+x%)]
+        {summary}
         🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
-    ``price_move`` (the signed percent, e.g. "+2.3%") is rendered as
-    "$TICKER (+2.3%)" on the summary line when supplied — see ``quotes.price_move``.
+    ``price_move`` (the signed percent, e.g. "+2.3%") is rendered beside the
+    ticker on line 1 as "$TICKER (+2.3%)" when supplied — see ``quotes.price_move``.
     """
-    # ── Line 1: ticker only — no event-type label, no emoji (kept minimal) ──
+    # ── Line 1: ticker (+ price reaction beside it) — no label, no emoji ────
     if event.type == EventType.MACRO or event.ticker.upper() == "MACRO":
         head = "MACRO"
     else:
         head = f"${_esc(event.ticker.upper())}"
+        if price_move:
+            head += f" ({_esc(price_move)})"
 
-    # ── Line 2: bite-size summary (+ optional price reaction) ──────────────
+    # ── Line 2: bite-size summary (ticker is never repeated here) ──────────
     summary_line = _esc(event.summary)
-    if price_move:
-        summary_line += f"  ·  ${_esc(event.ticker.upper())} ({_esc(price_move)})"
 
     # ── Line 3: link(s) + status + timestamp (one condensed line) ─────────
     parts: List[str] = []

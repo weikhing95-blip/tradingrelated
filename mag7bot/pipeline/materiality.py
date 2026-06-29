@@ -79,6 +79,10 @@ def score(item: RawItem, event_type: EventType) -> Materiality:
     # headline-guessed analyst chatter, which stays LOW unless a hint promotes it.
     if item.source == "ratings":
         return Materiality.MATERIAL
+    # Upcoming-earnings heads-up: material (worth a push), but not CRITICAL like
+    # the actual print — it shouldn't override quiet hours.
+    if item.source == "earnings" and item.payload.get("preview"):
+        return Materiality.MATERIAL
 
     # Mega product launches override into CRITICAL.
     if event_type == EventType.PRODUCT_LAUNCH:

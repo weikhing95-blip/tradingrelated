@@ -151,8 +151,10 @@ def test_format_alert_price_move():
                materiality=Materiality.CRITICAL, confirmed_count=1,
                sent_mode=SentMode.PENDING, ts=0.0)
     msg = formatter.format_alert(ev, price_move="+3.2%")
-    assert "$NVDA (+3.2%)" in msg
-    assert "shares" not in msg  # old "shares +x%" phrasing is gone
+    lines = msg.split("\n")
+    assert lines[0] == "$NVDA (+3.2%)"  # price reaction sits beside the ticker on line 1
+    assert msg.count("$NVDA") == 1       # ticker appears exactly once in the body
+    assert "shares" not in msg           # old "shares +x%" phrasing is gone
 
 
 def test_extended_companies_tracked():
@@ -238,10 +240,30 @@ def test_earnings_parser_beat_miss():
          "epsEstimate": 1.60, "revenueActual": None, "revenueEstimate": 96e9},
     ]}
     items = e._parse("AAPL", payload)
-    assert len(items) == 1  # only the reported quarter
+    assert len(items) == 1  # only the reported quarter (Q3 has no date → skipped)
     assert items[0].source_item_id == "AAPL-2026Q2"
     assert "EPS $1.52" in items[0].headline and "beat" in items[0].headline
     assert "$94.80B" in items[0].headline
+
+
+def test_earnings_preview_for_upcoming_report():
+    from mag7bot.sources import earnings as e
+
+    payload = {"earningsCalendar": [
+        {"symbol": "AAPL", "year": 2026, "quarter": 3, "date": "2026-07-31",
+         "hour": "amc", "epsActual": None, "epsEstimate": 1.42,
+         "revenueActual": None, "revenueEstimate": 85.9e9},
+    ]}
+    items = e._parse("AAPL", payload)
+    assert len(items) == 1
+    it = items[0]
+    assert it.source_item_id == "AAPL-2026Q3-preview"  # distinct from the actuals id
+    assert it.payload["preview"] is True
+    assert "expected" in it.headline and "after close" in it.headline
+    assert "EPS $1.42" in it.headline and "$85.90B" in it.headline
+    # Classifies as EARNINGS but is MATERIAL (push), not CRITICAL like the print.
+    assert classify.classify(it) == EventType.EARNINGS
+    assert materiality.score(it, EventType.EARNINGS) == Materiality.MATERIAL
 
 
 def test_macro_summary_index_and_level():
