@@ -37,7 +37,7 @@ DEDUP_WINDOW_HOURS = 6
 
 # Recency guard — never surface items older than this (aggregators resurface
 # evergreen listicles/opinion with old publish dates). Tier-1 filings are exempt.
-MAX_ITEM_AGE_HOURS = 48
+MAX_ITEM_AGE_HOURS = 24  # default freshness window for news (hours); override via env
 
 # Polling intervals in seconds (PRD §8 suggests EDGAR 1–2 min, news 2–5 min).
 EDGAR_POLL_SECONDS = 90
@@ -186,6 +186,11 @@ class Config:
     enable_insider: bool = True   # Finnhub large-insider-trade alerts (uses Finnhub key)
     enable_fed_rss: bool = True   # Fed speeches + FOMC press releases (free RSS)
 
+    # Freshness: news items older than this (hours) are dropped, and news with
+    # no usable timestamp is dropped too. Lower = fresher feed. SEC filings are
+    # always allowed (inherently current).
+    max_item_age_hours: int = MAX_ITEM_AGE_HOURS
+
     # Telegram user client (for channel monitoring)
     telegram_api_id: int = 0          # from my.telegram.org
     telegram_api_hash: str = ""       # from my.telegram.org
@@ -271,6 +276,12 @@ def load_config(dry_run: bool = False) -> Config:
     if feed_volume not in ("firehose", "moderate", "low"):
         feed_volume = "moderate"
     quiet_hours_enabled = os.environ.get("QUIET_HOURS", "").strip().lower() in _truthy
+    try:
+        max_item_age_hours = int(os.environ.get("MAX_ITEM_AGE_HOURS", str(MAX_ITEM_AGE_HOURS)))
+    except ValueError:
+        max_item_age_hours = MAX_ITEM_AGE_HOURS
+    if max_item_age_hours < 1:
+        max_item_age_hours = MAX_ITEM_AGE_HOURS
 
     if dry_run:
         return Config(
@@ -288,6 +299,7 @@ def load_config(dry_run: bool = False) -> Config:
             summary_model=summary_model,
             feed_volume=feed_volume,
             quiet_hours_enabled=quiet_hours_enabled,
+            max_item_age_hours=max_item_age_hours,
             db_path=db_path,
             dry_run=True,
             enable_google_news=enable_google_news,
@@ -313,6 +325,7 @@ def load_config(dry_run: bool = False) -> Config:
         summary_model=summary_model,
         feed_volume=feed_volume,
         quiet_hours_enabled=quiet_hours_enabled,
+        max_item_age_hours=max_item_age_hours,
         db_path=db_path,
         dry_run=False,
         enable_google_news=enable_google_news,

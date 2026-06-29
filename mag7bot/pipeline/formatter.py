@@ -74,10 +74,10 @@ def _market_session(ts: float) -> str:
 
 
 def _status_token(event: Event) -> str:
+    # Only the positive cross-confirmed badge is shown; the "unconfirmed" tag
+    # was dropped at the owner's request to keep alerts clean.
     if event.confirmed_count >= 2:
         return f"✅ cross-confirmed ({event.confirmed_count})"
-    if event.unconfirmed:
-        return "⚠️ unconfirmed"
     return ""
 
 

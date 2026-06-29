@@ -588,7 +588,29 @@ def test_build_events_drops_stale_news_keeps_fresh(cfg):
     events = ingest.build_events(cfg, [fresh, stale], now)
     summaries = {e.summary for e in events}
     assert "Nvidia to acquire Run:ai" in summaries
-    assert "Nvidia old listicle news" not in summaries  # >48h old → dropped
+    assert "Nvidia old listicle news" not in summaries  # too old → dropped
+
+
+def test_build_events_drops_news_within_old_default_window(cfg):
+    """A 36h-old news item used to pass the 48h window; with the tighter 24h
+    default it's now dropped — only the latest news reaches the channel."""
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0
+    item = _item("Nvidia yesterday-plus news", url="https://www.reuters.com/c", ts=now - 36 * 3600)
+    events = ingest.build_events(cfg, [item], now)
+    assert events == []
+
+
+def test_build_events_drops_news_with_no_timestamp(cfg):
+    """News with no usable publish date can't be proven fresh → dropped
+    (aggregators sometimes omit the date on resurfaced old articles)."""
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0
+    item = _item("Nvidia undated aggregator item", url="https://www.reuters.com/d", ts=0.0)
+    events = ingest.build_events(cfg, [item], now)
+    assert events == []
 
 
 def test_build_events_keeps_stale_tier1_filing(cfg):
