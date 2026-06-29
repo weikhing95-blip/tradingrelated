@@ -76,11 +76,6 @@ def aliases_for(ticker: str) -> List[str]:
     return [t.lower()]
 
 
-# Alias for code that prefers a more general name (the table currently *is*
-# the Mag 7, but other tickers can be added at runtime via the watchlist).
-ALL_COMPANIES: Dict[str, Company] = MAG7
-
-
 async def lookup_cik(
     ticker: str,
     user_agent: str = "MarketBrief contact@marketbrief.app",
