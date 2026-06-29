@@ -344,8 +344,9 @@ Beyond per-company news, the bot covers what moves these names:
   flags a name when its move *on the day* is large **relative to its own recent
   behaviour** — at least `PRICE_MOVE_MULTIPLIER`× (default **2×**) the trailing
   2-week average daily move *and* above a `PRICE_MOVE_MIN_PCT` floor (default
-  **3%**), e.g. `$NVDA — up 6.2% on the day — 2.4× its 2-week average daily move`.
-  One alert per name per day. This is a *computed* signal, deliberately distinct
+  **3%**). The alert itself is short and precise — just the move and last price,
+  e.g. `$NVDA — up 6.2% on the day — last $110.40`. One alert per name per day.
+  This is a *computed* signal, deliberately distinct
   from the auto-generated "X Moves 5%" news articles the relevance filter drops
   (those are stale, substance-free filler). Material (push), not a quiet-hours
   override. Toggle with `ENABLE_PRICE_MOVE`.

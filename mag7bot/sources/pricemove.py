@@ -99,16 +99,14 @@ def _trade_date(as_of_epoch: float) -> str:
 
 
 def build_item(
-    ticker: str, move: float, ratio: float, as_of_epoch: float
+    ticker: str, move: float, current: float, as_of_epoch: float
 ) -> RawItem:
-    """Construct the RawItem for an alert-worthy move. The headline is the clean,
-    ticker-free summary line (line 1 of the alert already shows ``$TICKER``)."""
+    """Construct the RawItem for an alert-worthy move. Short and precise: just the
+    move on the day and the last price. The headline is the ticker-free summary
+    line (line 1 of the alert already shows ``$TICKER``)."""
     pct = abs(move) * 100.0
     direction = "up" if move > 0 else "down"
-    headline = (
-        f"{direction} {pct:.1f}% on the day — "
-        f"{ratio:.1f}× its 2-week average daily move"
-    )
+    headline = f"{direction} {pct:.1f}% on the day — last ${current:,.2f}"
     published = as_of_epoch if as_of_epoch > 0 else datetime.now(tz=timezone.utc).timestamp()
     return RawItem(
         source="pricemove",
@@ -122,7 +120,7 @@ def build_item(
         form_type=None,
         payload={
             "move_pct": round(move * 100.0, 2),
-            "ratio": round(ratio, 2),
+            "last_price": current,
             "direction": direction,
         },
     )
@@ -171,8 +169,8 @@ class PriceMoveSource(Source):
                 )
                 if verdict is None:
                     continue
-                move, _baseline, ratio = verdict
-                item = build_item(ticker, move, ratio, as_of)
+                move, _baseline, _ratio = verdict
+                item = build_item(ticker, move, current, as_of)
                 if not is_seen(self.name, item.source_item_id):
                     out.append(item)
         return out

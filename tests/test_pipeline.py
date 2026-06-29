@@ -1002,9 +1002,11 @@ def test_pricemove_parse_chart_and_classify():
     closes, current, prev_close, as_of = pm.parse_chart(payload)
     assert current == 110.4 and prev_close == 104.0 and len(closes) == 12
 
-    item = pm.build_item("NVDA", 0.062, 2.4, as_of)
+    item = pm.build_item("NVDA", 0.062, 110.40, as_of)
     assert item.source == "pricemove" and item.ticker == "NVDA"
-    assert "up 6.2%" in item.headline and "2.4×" in item.headline
+    # Short + precise: move % and last price only — no baseline-ratio noise.
+    assert "up 6.2%" in item.headline and "last $110.40" in item.headline
+    assert "2-week" not in item.headline and "×" not in item.headline
     # Structured signal: routes as PRICE_MOVE → MATERIAL (push, not quiet-override).
     assert classify.classify(item) == EventType.PRICE_MOVE
     assert materiality.score(item, EventType.PRICE_MOVE) == Materiality.MATERIAL
@@ -1025,12 +1027,12 @@ def test_pricemove_event_bypasses_news_filters(cfg):
     from mag7bot.sources import pricemove as pm
 
     now = 1_700_000_000.0
-    item = pm.build_item("NVDA", 0.062, 2.4, now)
+    item = pm.build_item("NVDA", 0.062, 110.40, now)
     events = ingest.build_events(cfg, [item], now)
     assert len(events) == 1
     ev = events[0]
     assert ev.type == EventType.PRICE_MOVE and ev.ticker == "NVDA"
-    assert "6.2%" in ev.summary
+    assert "6.2%" in ev.summary and "last $110.40" in ev.summary
     assert ev.materiality == Materiality.MATERIAL
     assert db.recent_events(cfg.db_path, cfg.feed_id, "NVDA", now - 3600)
 
