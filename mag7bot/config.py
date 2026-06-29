@@ -50,6 +50,7 @@ INSIDER_POLL_SECONDS = 1800  # Finnhub insider transactions (large trades)
 FED_RSS_POLL_SECONDS = 300   # Federal Reserve RSS (speeches + FOMC press releases)
 HALTS_POLL_SECONDS = 60      # Nasdaq trading-halts RSS (free; time-critical)
 RATINGS_POLL_SECONDS = 600   # Finnhub analyst upgrade/downgrade feed
+ALPACA_POLL_SECONDS = 120    # Alpaca (Benzinga) real-time news — full article bodies
 PRICEMOVE_POLL_SECONDS = 300  # Yahoo chart API — unusual intraday-move check
 
 # Unusual price-move detector defaults. Flag when |move on the day| is at least
@@ -114,6 +115,8 @@ class Config:
     finnhub_api_key: str
     sec_edgar_user_agent: str
     fred_api_key: str  # enables the macro source when non-empty
+    alpaca_api_key: str  # enables the Alpaca (Benzinga) news source when set
+    alpaca_secret_key: str
 
     # Behaviour
     digest_time_sgt: str  # "HHMM", e.g. "0900"
@@ -134,6 +137,7 @@ class Config:
     enable_trading_halts: bool = True   # Nasdaq trading-halts RSS (free, critical)
     enable_analyst_ratings: bool = True  # Finnhub upgrade/downgrade feed (uses Finnhub key)
     enable_article_fetch: bool = True   # fetch full article text for richer LLM summaries (llm mode)
+    enable_alpaca: bool = True          # Alpaca (Benzinga) news — active only when keys are set
     enable_price_move: bool = True      # unusual intraday-move alerts (Yahoo chart; free)
 
     # Price-move detector thresholds (see constants above).
@@ -223,6 +227,7 @@ def load_config(dry_run: bool = False) -> Config:
     enable_trading_halts = os.environ.get("ENABLE_TRADING_HALTS", "true").strip().lower() not in _falsy
     enable_analyst_ratings = os.environ.get("ENABLE_ANALYST_RATINGS", "true").strip().lower() not in _falsy
     enable_article_fetch = os.environ.get("ENABLE_ARTICLE_FETCH", "true").strip().lower() not in _falsy
+    enable_alpaca = os.environ.get("ENABLE_ALPACA", "true").strip().lower() not in _falsy
     enable_price_move = os.environ.get("ENABLE_PRICE_MOVE", "true").strip().lower() not in _falsy
     enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "false").strip().lower() in _truthy
 
@@ -261,6 +266,8 @@ def load_config(dry_run: bool = False) -> Config:
     # dry-run, required live).
     common = dict(
         fred_api_key=os.environ.get("FRED_API_KEY", "").strip(),
+        alpaca_api_key=os.environ.get("ALPACA_API_KEY", "").strip(),
+        alpaca_secret_key=os.environ.get("ALPACA_SECRET_KEY", "").strip(),
         digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
         summary_mode=summary_mode,
         anthropic_api_key=anthropic_key,
@@ -277,6 +284,7 @@ def load_config(dry_run: bool = False) -> Config:
         enable_trading_halts=enable_trading_halts,
         enable_analyst_ratings=enable_analyst_ratings,
         enable_article_fetch=enable_article_fetch,
+        enable_alpaca=enable_alpaca,
         enable_price_move=enable_price_move,
         price_move_multiplier=price_move_multiplier,
         price_move_min_pct=price_move_min_pct,

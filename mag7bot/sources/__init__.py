@@ -9,6 +9,7 @@ P2 will add aggregator sources (Google News etc.) behind the F11 pre-filter.
 
 from __future__ import annotations
 
+from .alpaca import AlpacaNewsSource
 from .base import Source
 from .earnings import EarningsSource
 from .edgar import EdgarSource
@@ -24,6 +25,7 @@ from .yahoo_news import YahooNewsSource
 
 __all__ = [
     "Source",
+    "AlpacaNewsSource",
     "AnalystRatingsSource",
     "EarningsSource",
     "EdgarSource",

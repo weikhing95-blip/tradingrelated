@@ -235,7 +235,7 @@ no social media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`
 > `FEED_VOLUME`, `QUIET_HOURS`, `SUMMARY_MODE`.
 
 ```
-EDGAR · Finnhub · earnings · macro · Fed · halts · ratings · price-moves · Google/Yahoo
+EDGAR · Finnhub · Alpaca/Benzinga · earnings · macro · Fed · halts · ratings · price-moves · Google/Yahoo
         + channel relay (Walter Bloomberg / SM News / Kobeissi)
                  │
                  ▼
@@ -351,9 +351,19 @@ Beyond per-company news, the bot covers what moves these names:
   (those are stale, substance-free filler). Material (push), not a quiet-hours
   override. Toggle with `ENABLE_PRICE_MOVE`.
 
-Structured sources (EDGAR, earnings, macro, halts, ratings) bypass the publisher
-whitelist and the company-relevance gate — they're trusted data, not free-text
-news.
+- **Alpaca / Benzinga news (`alpaca`, free key):** Alpaca's News API streams
+  **Benzinga's real-time professional wire** — and unlike a headline-only RSS
+  feed it carries the **full article body**, so the summarizer works from real
+  substance with no fetch/extraction guesswork. Benzinga tags each story's
+  tickers itself (more reliable than alias-matching the headline), so it's
+  treated as a trusted structured source; the low-quality/filler filter still
+  applies. Needs free `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (market-data keys —
+  no funded account). Off until the keys are set. *(Posting house-style summaries
+  rather than verbatim content keeps clear of Benzinga's redistribution terms.)*
+
+Structured sources (EDGAR, earnings, macro, halts, ratings, price-moves, Alpaca)
+bypass the publisher whitelist and the company-relevance gate — they're trusted
+data, not free-text news.
 
 ## Summaries (bite-size)
 
