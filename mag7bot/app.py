@@ -30,9 +30,21 @@ from .sources import fixtures
 def _make_client(cfg: Config):
     if cfg.summary_mode != "llm":
         return None
-    import anthropic  # imported lazily so verbatim mode needs no SDK creds
+    try:
+        import anthropic  # imported lazily so verbatim mode needs no SDK creds
 
-    return anthropic.Anthropic()
+        client = anthropic.Anthropic()
+        print(f"🤖 LLM summaries ON (model={cfg.summary_model}).")
+        return client
+    except Exception as exc:
+        # Missing/invalid ANTHROPIC_API_KEY or SDK import error must NOT take the
+        # bot down — fall back to free verbatim summaries and keep publishing.
+        print(
+            f"⚠️  SUMMARY_MODE=llm but the Anthropic client failed to init ({exc}). "
+            f"Falling back to verbatim summaries. Check ANTHROPIC_API_KEY in the env."
+        )
+        cfg.summary_mode = "verbatim"
+        return None
 
 
 async def _dry_run(cfg: Config) -> None:
