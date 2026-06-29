@@ -971,3 +971,25 @@ def test_enrich_article_bodies_replaces_blurb(cfg, monkeypatch):
     asyncio.run(ingest.enrich_article_bodies(cfg, [news, structured]))
     assert news.body.startswith("FULL ARTICLE TEXT")  # news enriched
     assert structured.body == ""                        # structured untouched
+
+
+def test_boilerplate_blurb_falls_back_to_headline():
+    from mag7bot import article
+
+    google_junk = ("Comprehensive up-to-date news coverage, aggregated from "
+                   "sources all over the world by Google News.")
+    assert article.is_boilerplate(google_junk) is True
+    assert article.is_boilerplate("Micron raised its target to $2,000") is False
+    # Verbatim: a boilerplate body is ignored → the headline is used instead.
+    out = summarize.choose_summary("Microsoft (MSFT) Moves -5.7%", google_junk, mode="verbatim")
+    assert out == "Microsoft (MSFT) Moves -5.7%"
+    assert "Google News" not in out
+
+
+def test_extract_text_rejects_boilerplate_meta():
+    from mag7bot import article
+
+    html = ('<html><head><meta property="og:description" content="Comprehensive '
+            'up-to-date news coverage, aggregated from sources all over the world '
+            'by Google News."></head><body></body></html>')
+    assert article.extract_text(html) == ""  # boilerplate meta → no content

@@ -16,10 +16,33 @@ from __future__ import annotations
 
 from html.parser import HTMLParser
 from typing import List
+from urllib.parse import urlparse
 
 import httpx
 
 _UA = "Mozilla/5.0 (compatible; mag7bot/1.0; +https://t.me/)"
+
+# Aggregator/consent-wall boilerplate that carries no real news. When a page
+# yields only this (e.g. a Google News interstitial's og:description, or a
+# cookie-consent gate), we treat it as no-content and fall back to the headline.
+JUNK_BLURBS = (
+    "comprehensive up-to-date news coverage, aggregated from sources all over the world by google news",
+    "aggregated from sources all over the world by google news",
+    "your browser is not supported",
+    "to continue, please enable",
+    "we and our partners use cookies",
+    "by continuing to use this site",
+    "please enable javascript",
+    "enable javascript to",
+    "access denied",
+    "you are being redirected",
+)
+
+
+def is_boilerplate(text: str) -> bool:
+    """True if the text is aggregator/consent boilerplate, not real content."""
+    t = (text or "").strip().lower()
+    return bool(t) and any(j in t for j in JUNK_BLURBS)
 
 # Containers whose text is boilerplate, not article body.
 _SKIP_TAGS = {
@@ -79,7 +102,9 @@ def extract_text(html: str, max_chars: int = 4000) -> str:
     if len(body) < 200 and parser.meta_description:
         body = parser.meta_description
     body = body[:max_chars].strip()
-    return body if len(body) >= 80 else ""
+    if len(body) < 80 or is_boilerplate(body):
+        return ""
+    return body
 
 
 async def fetch_article_text(url: str, timeout: float = 8.0, max_chars: int = 4000) -> str:
@@ -94,6 +119,11 @@ async def fetch_article_text(url: str, timeout: float = 8.0, max_chars: int = 40
             resp.raise_for_status()
             ctype = resp.headers.get("content-type", "").lower()
             if "html" not in ctype and "xml" not in ctype and ctype:
+                return ""
+            # Unresolved Google redirects / consent gates aren't the article —
+            # their only text is aggregator boilerplate, so don't extract them.
+            final_host = (urlparse(str(resp.url)).hostname or "").lower()
+            if "google." in final_host or "consent." in final_host or "news.google" in final_host:
                 return ""
             return extract_text(resp.text, max_chars=max_chars)
     except Exception:

@@ -20,6 +20,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from ..article import is_boilerplate
 from ..config import HAIKU_MODEL
 
 MAX_LEN = 320  # bite-size: ~1-3 sentences
@@ -44,7 +45,7 @@ def rich_verbatim(headline: str, body: str = "") -> str:
     substance; otherwise use the headline. Always verbatim — no invention."""
     h = _clean(headline)
     b = _clean(body)
-    if b and len(b) >= 40 and b.lower() != h.lower():
+    if b and not is_boilerplate(b) and len(b) >= 40 and b.lower() != h.lower():
         return truncate(b)
     return truncate(h)
 
@@ -135,6 +136,10 @@ def choose_summary(
     fast model (Haiku). Falls back to rich-verbatim on any error, missing
     client, or a faithfulness-guard failure.
     """
+    # A boilerplate body (aggregator/consent text) carries no facts — drop it so
+    # the LLM summarises the real headline instead of parroting the boilerplate.
+    if is_boilerplate(body):
+        body = ""
     rich = rich_verbatim(headline, body)
     if mode == "llm" and use_llm and client is not None:
         try:
