@@ -386,6 +386,17 @@ def recent_events(path: Path, feed_id: int, ticker: str, since_ts: float) -> Lis
     return [_row_to_event(r) for r in rows]
 
 
+def recent_events_window(path: Path, feed_id: int, since_ts: float) -> List[Event]:
+    """All events for the feed at or after `since_ts`, any ticker — used for
+    cross-ticker URL dedup (one article surfacing under several tickers)."""
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE feed_id = ? AND ts >= ? ORDER BY ts",
+            (feed_id, since_ts),
+        ).fetchall()
+    return [_row_to_event(r) for r in rows]
+
+
 def update_event_links(
     path: Path, event_id: int, links: List[str], confirmed_count: int
 ) -> None:

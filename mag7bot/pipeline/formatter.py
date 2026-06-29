@@ -2,13 +2,14 @@
 
 Per-alert layout (HTML, hyperlinks behind short labels):
 
-    {$TICKER · EVENT TYPE}  {emoji}
+    {$TICKER}  {emoji}
     {one-line summary, ≤200 chars}
     🔗 {publisher} (link)  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
-The first line gives the reader the *who* (ticker) and *what* (event type) at
-a glance. The second line is the bite-size summary itself. The third line
-condenses provenance, confirmation status, and the timestamp into one row.
+The first line gives the reader the *who* (ticker) at a glance; the emoji
+signals the *what* (event type) without spending a word on a text label. The
+second line is the bite-size summary itself. The third line condenses
+provenance, confirmation status, and the timestamp into one row.
 
 Daily Digest layout: critical events first, then ECONOMY (macro + Fed),
 then BY COMPANY for the rest. See ``format_digest`` for details.
@@ -106,20 +107,20 @@ def _status_token(event: Event) -> str:
 def format_alert(event: Event, price_move: str = "") -> str:
     """Render a single event into the MarketBrief alert format.
 
-        {$TICKER · EVENT TYPE}  {emoji}
+        {$TICKER}  {emoji}
         {summary}  [· {price move}]
         🔗 {publisher} (link)  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
     ``price_move`` (e.g. "shares +2.3%") is appended to the summary line when
     supplied — see ``quotes.price_move``.
     """
-    # ── Line 1: ticker + event type label + emoji ──────────────────────────
-    type_label = event.type.display.upper()
+    # ── Line 1: ticker + emoji (the emoji conveys the event type; the text
+    # label is dropped to keep the alert tight) ────────────────────────────
     if event.type == EventType.MACRO or event.ticker.upper() == "MACRO":
-        head = f"MACRO · {_esc(type_label)}  {event.type.emoji}"
+        head = f"MACRO  {event.type.emoji}"
     else:
         cashtag = f"${_esc(event.ticker.upper())}"
-        head = f"{cashtag} · {_esc(type_label)}  {event.type.emoji}"
+        head = f"{cashtag}  {event.type.emoji}"
 
     # ── Line 2: bite-size summary (+ optional price reaction) ──────────────
     summary_line = _esc(event.summary)
