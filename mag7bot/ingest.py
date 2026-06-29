@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Sequence
 
 from . import db
-from .config import DEDUP_WINDOW_HOURS, MAX_ITEM_AGE_HOURS, SGT, Config
+from .config import DEDUP_WINDOW_HOURS, SGT, Config
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
 from .sources.base import Source
@@ -130,15 +130,24 @@ def build_events(
 
     approved = structured + news
 
-    # Recency guard: drop stale articles (aggregators resurface old listicles
-    # with weeks-old publish dates). Tier-1 filings and items with an unknown
-    # date are kept.
-    age_cutoff = now - MAX_ITEM_AGE_HOURS * 3600
-    approved = [
-        it
-        for it in approved
-        if it.tier == Tier.PRIMARY or not it.published_at or it.published_at >= age_cutoff
-    ]
+    # Recency guard: only the latest news reaches the channel.
+    #   - SEC filings (Tier-1/PRIMARY) are always allowed — inherently current.
+    #   - Free-text NEWS sources (Finnhub/Yahoo/Google) MUST carry a known
+    #     timestamp within the freshness window. Aggregators resurface old
+    #     articles, sometimes with a missing/zero date, so "no date" is treated
+    #     as stale and dropped — not kept.
+    #   - Other structured feeds (earnings/macro/Fed/insider/relay) keep the
+    #     lenient rule: drop only when a known date is clearly too old.
+    age_cutoff = now - cfg.max_item_age_hours * 3600
+
+    def _fresh_enough(it: RawItem) -> bool:
+        if it.tier == Tier.PRIMARY:
+            return True
+        if it.source in relevance.NEWS_SOURCES:
+            return bool(it.published_at) and it.published_at >= age_cutoff
+        return (not it.published_at) or it.published_at >= age_cutoff
+
+    approved = [it for it in approved if _fresh_enough(it)]
 
     for item in approved:
         db.insert_raw_item(cfg.db_path, item)
