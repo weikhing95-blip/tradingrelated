@@ -215,11 +215,14 @@ Treat this as the first link in a longer chain, not a finished trading system.
 
 # Mag 7 News Bot (Telegram)
 
+> **This is the actively-developed product in the repo.** The "Distilling AJ
+> research" prototypes above are parked in the backlog.
+
 A separate product in this repo (`mag7bot/`): a long-running Telegram service
-that delivers **source-verified** news on the Magnificent Seven to a private
-channel, configured privately via a 1:1 DM with the bot. Every alert carries a
-source tier and a canonical link to a primary or reputable source — no social
-media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
+that delivers **source-verified** news on the Magnificent Seven (plus MU/PLTR
+and US macro/Fed) to a private channel, configured privately via a 1:1 DM with
+the bot. Every alert carries a canonical link to a primary or reputable source —
+no social media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
 
 > **Goal:** a **fast, high-signal, source-verified market feed** for a focused
 > watchlist (Mag 7 + MU/PLTR) plus US macro & the Fed — matching the speed and
@@ -232,10 +235,14 @@ media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
 > `FEED_VOLUME`, `QUIET_HOURS`, `SUMMARY_MODE`.
 
 ```
-SEC EDGAR + Finnhub ─► whitelist ─► classify ─► dedup ─► materiality
-                                                              │
-                              material ──► instant push ──┐   │
-                              low ────────► daily digest ─┴──►  📢 channel
+EDGAR · Finnhub · earnings · macro · Fed · halts · ratings · Google/Yahoo
+        + channel relay (Walter Bloomberg / SM News / Kobeissi)
+                 │
+                 ▼
+ whitelist ─► relevance ─► recency ─► classify ─► dedup ─► materiality ─► summarize
+                                                                │
+                              material/push ──► instant alert ──┐   │
+                              low ──────────────► daily digest ─┴──►  📢 channel
         owner DM ──► user_id auth gate ──► commands ──► state DB
 ```
 
@@ -243,14 +250,17 @@ SEC EDGAR + Finnhub ─► whitelist ─► classify ─► dedup ─► materia
   confirmations); the private channel is the *publish plane* (broadcast-only
   alerts + digests). Commands run **only** in the owner DM and **only** for the
   stored owner `user_id`; everyone else gets a refusal.
-- **Verified links (PRD §4):** a domain whitelist drops anything outside the
-  approved publisher set. Single-source, non-primary items are labelled
-  `⚠️ unconfirmed`; the same story across sources collapses to one
+- **Verified links (PRD §4):** a domain whitelist (exact URL-host / whole-word
+  publisher match) drops anything outside the approved set. The same story
+  across sources — **and across tickers, by canonical URL** — collapses to one
   `✅ cross-confirmed (N)` alert (6h window).
+- **Noise filters:** opinion/listicle headlines, auto-generated price-move filler
+  ("X Moves -5.7%", "Stock Up 3%"), off-topic relay posts, and aggregator/consent
+  boilerplate are all dropped — only new information reaches the channel.
 - **Routing (PRD §6, §10):** rule-based materiality sends 8-K / earnings / M&A /
-  legal / management / index changes as instant pushes (critical types override
-  quiet hours 00:00–07:00 SGT); analyst actions and minor news go to the daily
-  digest.
+  legal / management / halts / index changes as instant pushes; analyst actions
+  and minor news go to the daily digest. Quiet hours are **off by default
+  (24/7)**; critical types override them when enabled.
 
 ## Try it offline (no credentials)
 
@@ -284,10 +294,27 @@ post permission, and put the channel id + your numeric Telegram user id in
 `.env`. Required env vars are documented in `.env.example`:
 `TELEGRAM_BOT_TOKEN`, `OWNER_USER_ID`, `CHANNEL_ID`, `FINNHUB_API_KEY`,
 `SEC_EDGAR_USER_AGENT` (SEC requires a contact email), plus optional
-`DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`) and
-`ANTHROPIC_API_KEY` (only for `llm` mode).
+`DIGEST_TIME_SGT`, `SUMMARY_MODE` (`verbatim` default, or `llm`),
+`ANTHROPIC_API_KEY` (for `llm` mode), `FRED_API_KEY` (macro), the source toggles
+(`ENABLE_*`), and tunables `FEED_VOLUME` / `QUIET_HOURS` / `MAX_ITEM_AGE_HOURS` /
+`DEDUP_WINDOW_HOURS`. See `.env.example` for the full annotated list.
 
-## Coverage: macro releases + earnings snippets
+### Channel relay (optional, reads Walter Bloomberg / SM News / Kobeissi)
+
+The relay reads curated public channels via a **pyrogram user client** (your own
+Telegram account, not the bot token). Set `TELEGRAM_API_ID` + `TELEGRAM_API_HASH`
+(from my.telegram.org), then authenticate once to create the session:
+
+```bash
+python -m mag7bot.telegram_setup     # phone + OTP (+2FA) → telegram_user.session
+```
+
+On a host with no file upload (e.g. Railway), set `TELEGRAM_SESSION_B64` to the
+gzip+base64 of that session file (`gzip -c telegram_user.session | base64 -w0`)
+and the bot writes it on boot. Your account must **join** each channel to receive
+its posts — verify from the DM with `/channels` (shows ✅ joined per channel).
+
+## Coverage: macro, earnings, halts, ratings
 
 Beyond per-company news, the bot covers what moves these names:
 
@@ -296,9 +323,11 @@ Beyond per-company news, the bot covers what moves these names:
   new release, e.g. `📊 US Core CPI (May 2026) — +0.3% MoM, +3.2% YoY`. These are
   economy-wide (no ticker), Tier 1, treated as critical (instant push). Off
   until `FRED_API_KEY` is set (free from fredaccount.stlouisfed.org).
-- **Earnings snippets (`earnings`, uses the Finnhub key):** posts actuals vs
-  estimates when a watched name reports, e.g.
-  `$AAPL 🟢 Q2 2026 earnings — EPS $1.52 vs $1.50 est ✅ beat · Rev $94.8B vs $94.5B est ✅ beat`.
+- **Earnings (`earnings`, uses the Finnhub key):** a one-time **upcoming-earnings
+  preview** a few days before a watched name reports
+  (`$AAPL Q3 2026 earnings expected Thu 31 Jul (after close) — consensus EPS $1.42, Rev $85.9B est`),
+  then the **actuals vs estimates** when it reports
+  (`$AAPL Q2 2026 earnings — EPS $1.52 vs $1.50 est ✅ beat · Rev $94.8B vs $94.5B est ✅ beat`).
 - **Executive commentary:** CEO/CFO interviews and earnings-call remarks in the
   news feeds are detected (🎙) and pushed. Best-effort — depends on the wires
   covering it.
@@ -318,19 +347,23 @@ news.
 
 ## Summaries (bite-size)
 
-Each alert leads with a bite-size summary + the `$TICKER` cashtag, then a compact
-verified source/link line and timestamp. Two modes (`SUMMARY_MODE`):
+Each alert is three lines — `$TICKER`, the bite-size summary, then a compact
+verified link + timestamp. Two modes (`SUMMARY_MODE`):
 
 - **`verbatim`** (default, free, no API): uses the source's own
-  summary/description blurb (Finnhub `summary`, Yahoo `description`) when it
-  carries real content — a 1–3 sentence lede — otherwise falls back to the
-  headline. Accurate, zero cost, no hallucination risk.
-- **`llm`** (needs `ANTHROPIC_API_KEY`): Claude compresses the headline + blurb
-  into a neutral 1–2 sentence summary using a **cheap fast model (Haiku** by
-  default, override with `SUMMARY_MODEL`). A source-faithfulness guard rejects
-  any summary that introduces a number absent from the source text, falling back
-  to the verbatim blurb. *(The Anthropic API is pay-as-you-go and separate from a
-  Claude Max subscription — Max cannot fund it.)*
+  summary/description blurb when it carries real content — a 1–3 sentence lede —
+  otherwise falls back to the headline. Accurate, zero cost, no hallucination
+  risk.
+- **`llm`** (needs `ANTHROPIC_API_KEY`): for news items the bot **fetches the
+  article and extracts its body** (so the summary carries the real substance —
+  e.g. a price-target or earnings figure buried past the headline), then Claude
+  compresses it into a neutral 1–2 sentence summary on a **cheap fast model
+  (Haiku** by default; override with `SUMMARY_MODEL`). A source-faithfulness guard
+  rejects any summary that introduces a **number or a proper noun absent from the
+  source**, falling back to the verbatim blurb. Article fetch is best-effort
+  (paywalled/JS pages fall back to the blurb) and toggled by `ENABLE_ARTICLE_FETCH`.
+  *(The Anthropic API is pay-as-you-go and separate from a Claude Max subscription
+  — Max cannot fund it.)*
 
 **Feed behaviour:**
 - **`FEED_VOLUME`** — `firehose` pushes all on-watchlist items instantly (incl.
@@ -338,9 +371,16 @@ verified source/link line and timestamp. Two modes (`SUMMARY_MODE`):
   digest); `low` pushes critical only.
 - **`QUIET_HOURS`** — default off = **24/7**; set `true` to mute non-critical
   pushes 00:00–07:00 SGT.
-- **Price reaction** — each company alert appends the day's move (e.g.
-  "📈 shares +2.3%") via a cached Finnhub `/quote` lookup; best-effort, never
-  blocks a push.
+
+## Observability & health
+
+- **`/status`** — 24h event counts, last push, relay-monitor liveness, and
+  **per-source health** (last fetch count, freshness, error streak).
+- **`/channels`** — monitored relay channels with a **live membership check**
+  (✅ joined vs ⚠️ not-joined/unresolved).
+- **Failure alerts** — a source breaking, recovering, or a failed channel post
+  sends the owner a one-time DM; a broken source is isolated so it never aborts
+  the polling cycle.
 
 ## Optional: Yahoo Finance (breadth source)
 
@@ -357,8 +397,14 @@ fails soft if it's unavailable.)*
 suggested tier + rationale) **not already** whitelisted — you stay in control and
 approve with `/add_source <domain>`. Approved domains persist in the DB and take
 effect on the next poll (no redeploy). `/sources` shows config defaults plus your
-additions; `/remove_source <domain>` removes an addition. The agent needs
-`ANTHROPIC_API_KEY` set (independent of `SUMMARY_MODE`).
+additions; `/remove_source <domain>` removes an addition. The whitelist itself
+lives in `mag7bot/data/whitelist_domains.txt` (edit without touching code).
+
+> The **weekly autonomous** version of this agent runs on Opus and is **off by
+> default** (it can consume the budget meant for the cheap Haiku summaries).
+> Enable it with `ENABLE_RESEARCH_AGENT=true` only if you want unattended weekly
+> source discovery. The interactive `/suggest_sources` command works regardless
+> (needs `ANTHROPIC_API_KEY`).
 
 Use `/diag` anytime to live-probe every configured source and see how many items
 each returns — handy for confirming connectivity when the channel is quiet.
@@ -412,8 +458,8 @@ a `railway.json` (Dockerfile builder, restart-on-failure). The bot is a
    get a flood of days-old news — only genuinely new events fire after that.
 
 Watch the deploy logs: you should see the preflight ✅ lines, then
-`🟢 Cold start — primed N pre-existing item(s)`. After that, DM the bot
-`/watchlist` and wait for the first live alert in the channel.
+`🟢 Primed N pre-existing item(s) as seen`. After that, DM the bot `/status`
+to confirm health and `/watchlist`, then wait for the first live alert.
 
 ## Commands (owner DM only)
 
@@ -426,6 +472,9 @@ Watch the deploy logs: you should see the preflight ✅ lines, then
 | `/categories [TICKER [type]]` | View / toggle event types per ticker |
 | `/sources` | Show the active source whitelist (config + approved additions) |
 | `/show` | Expand items from the last digest |
+| `/status` | 24h health: events, last push, relay liveness, per-source health |
+| `/channels` | List relay channels + live membership check (✅ joined) |
+| `/add_channel @user [name]` · `/remove_channel @user` | Manage relay channels |
 | `/test` | Post a sample alert to the channel (publish health-check) |
 | `/diag` | Live-probe each news source and report how many items it returns |
 | `/suggest_sources` | Agent proposes reputable publishers to add (needs `ANTHROPIC_API_KEY`) |
@@ -435,17 +484,20 @@ Watch the deploy logs: you should see the preflight ✅ lines, then
 
 | Path | Purpose |
 | ---- | ------- |
-| `mag7bot/config.py` | Env/secrets, whitelist, SGT tz, tunables |
+| `mag7bot/config.py` | Env/secrets, SGT tz, tunables |
+| `mag7bot/data/whitelist_domains.txt` | Approved-publisher whitelist (edit without code) |
 | `mag7bot/schemas.py` | `RawItem` / `Event` + enums |
-| `mag7bot/db.py` | SQLite state (companies, feed, watchlist, raw_items, events, seen) |
-| `mag7bot/companies.py` | Mag7 ticker → CIK / name / groups |
-| `mag7bot/sources/` | EDGAR + Finnhub adapters, offline fixtures |
-| `mag7bot/pipeline/` | whitelist · classify · dedup · materiality · summarize · formatter |
-| `mag7bot/ingest.py` | One ingest cycle: fetch → pipeline → events → route |
+| `mag7bot/db.py` | SQLite state (companies, feed, watchlist, raw_items, events, seen, source_health, telegram_channels) |
+| `mag7bot/companies.py` | Ticker → CIK / name / aliases (Mag7 + MU/PLTR) |
+| `mag7bot/sources/` | edgar · finnhub · earnings · macro · fed · insider · halts · ratings · google_news · yahoo_news + fixtures |
+| `mag7bot/pipeline/` | whitelist · relevance · classify · dedup · materiality · summarize · formatter |
+| `mag7bot/article.py` | Fetch + extract article text for richer LLM summaries |
+| `mag7bot/ingest.py` | One ingest cycle: fetch → enrich → pipeline → events → route |
 | `mag7bot/commands.py` | Telegram command handlers + owner auth gate |
+| `mag7bot/telegram_monitor.py` | Relay: reads curated channels via a pyrogram user client |
 | `mag7bot/publisher.py` | Channel publish (instant push + digest) |
 | `mag7bot/scheduler.py` | JobQueue polling + daily digest jobs |
-| `mag7bot/app.py` | Entry point (`--dry-run` / live) |
+| `mag7bot/app.py` | Entry point (`--dry-run` / `--check` / live) |
 | `tests/test_pipeline.py` | Unit + end-to-end pipeline tests |
 
 > **Note:** this is decision/alerting infrastructure, not trading. The same
