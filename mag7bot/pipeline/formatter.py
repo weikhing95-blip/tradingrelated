@@ -85,11 +85,11 @@ def format_alert(event: Event, price_move: str = "") -> str:
     """Render a single event into the MarketBrief alert format.
 
         {$TICKER}
-        {summary}  [· {price move}]
+        {summary}  [· ${TICKER} (+x%)]
         🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
 
-    ``price_move`` (e.g. "shares +2.3%") is appended to the summary line when
-    supplied — see ``quotes.price_move``.
+    ``price_move`` (the signed percent, e.g. "+2.3%") is rendered as
+    "$TICKER (+2.3%)" on the summary line when supplied — see ``quotes.price_move``.
     """
     # ── Line 1: ticker only — no event-type label, no emoji (kept minimal) ──
     if event.type == EventType.MACRO or event.ticker.upper() == "MACRO":
@@ -100,7 +100,7 @@ def format_alert(event: Event, price_move: str = "") -> str:
     # ── Line 2: bite-size summary (+ optional price reaction) ──────────────
     summary_line = _esc(event.summary)
     if price_move:
-        summary_line += f"  ·  📈 {_esc(price_move)}"
+        summary_line += f"  ·  ${_esc(event.ticker.upper())} ({_esc(price_move)})"
 
     # ── Line 3: link(s) + status + timestamp (one condensed line) ─────────
     parts: List[str] = []
