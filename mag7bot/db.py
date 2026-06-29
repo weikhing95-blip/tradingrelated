@@ -106,6 +106,17 @@ CREATE TABLE IF NOT EXISTS research_log (
     target     TEXT NOT NULL,
     reason     TEXT NOT NULL DEFAULT ''
 );
+
+-- Per-source health: powers /status and owner failure alerts.
+CREATE TABLE IF NOT EXISTS source_health (
+    source              TEXT PRIMARY KEY,
+    last_ok_ts          REAL,            -- last successful fetch
+    last_count          INTEGER DEFAULT 0,
+    last_error_ts       REAL,
+    last_error          TEXT NOT NULL DEFAULT '',
+    consecutive_errors  INTEGER NOT NULL DEFAULT 0,
+    updated_at          REAL NOT NULL DEFAULT 0
+);
 """
 
 
@@ -546,3 +557,61 @@ def status_summary(path: Path, feed_id: int, since: float) -> dict:
         "digest": int(total) - int(pushes),
         "last_push": last_push,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Source health (observability + failure alerting)                              #
+# --------------------------------------------------------------------------- #
+
+
+def record_source_ok(path: Path, source: str, count: int, now: float) -> bool:
+    """Record a successful fetch. Returns True if the source was previously in
+    an error state (i.e. this is a recovery), so the caller can notify once."""
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT consecutive_errors FROM source_health WHERE source = ?", (source,)
+        ).fetchone()
+        recovered = bool(row and row["consecutive_errors"] > 0)
+        conn.execute(
+            """INSERT INTO source_health
+                   (source, last_ok_ts, last_count, consecutive_errors, updated_at)
+               VALUES (?, ?, ?, 0, ?)
+               ON CONFLICT(source) DO UPDATE SET
+                   last_ok_ts = excluded.last_ok_ts,
+                   last_count = excluded.last_count,
+                   consecutive_errors = 0,
+                   updated_at = excluded.updated_at""",
+            (source, now, int(count), now),
+        )
+    return recovered
+
+
+def record_source_error(path: Path, source: str, error: str, now: float) -> int:
+    """Record a failed fetch and return the new consecutive-error count (1 on a
+    fresh failure), so the caller can alert only on the ok→error transition."""
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT consecutive_errors FROM source_health WHERE source = ?", (source,)
+        ).fetchone()
+        n = (row["consecutive_errors"] if row else 0) + 1
+        conn.execute(
+            """INSERT INTO source_health
+                   (source, last_error_ts, last_error, consecutive_errors, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(source) DO UPDATE SET
+                   last_error_ts = excluded.last_error_ts,
+                   last_error = excluded.last_error,
+                   consecutive_errors = source_health.consecutive_errors + 1,
+                   updated_at = excluded.updated_at""",
+            (source, now, error[:300], n, now),
+        )
+    return n
+
+
+def get_source_health(path: Path) -> List[dict]:
+    """All recorded source-health rows, most-recently-updated first."""
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM source_health ORDER BY updated_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]

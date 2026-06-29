@@ -39,8 +39,17 @@ async def _poll(context: ContextTypes.DEFAULT_TYPE, source_name: str) -> None:
     source = bot_data["sources"].get(source_name)
     if source is None:
         return
+
+    async def _alert(msg: str) -> None:
+        # Best-effort owner DM on source failure/recovery or a failed channel post.
+        try:
+            await context.application.bot.send_message(chat_id=cfg.owner_user_id, text=msg)
+        except Exception:
+            pass
+
     await ingest.run_cycle(
-        cfg, [source], bot_data["publisher"], time.time(), bot_data.get("client")
+        cfg, [source], bot_data["publisher"], time.time(), bot_data.get("client"),
+        alert=_alert,
     )
 
 

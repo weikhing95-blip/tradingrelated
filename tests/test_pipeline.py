@@ -733,3 +733,71 @@ def test_canon_url_ignores_scheme_www_and_query():
     b = _canon_url("http://fool.com/x/article/")
     assert a == b == "fool.com/x/article"
     assert _canon_url("") == ""  # blank never matches
+
+
+# --------------------------------------------------------------------------- #
+# Observability: source health + run_cycle isolation/alerting                   #
+# --------------------------------------------------------------------------- #
+
+
+class _NamedSource:
+    """Minimal named Source for run_cycle isolation/alerting tests."""
+
+    def __init__(self, name, items=None, boom=False):
+        self.name = name
+        self.tier = Tier.WIRE
+        self._items = items or []
+        self._boom = boom
+
+    async def fetch_new(self, tickers, is_seen):
+        if self._boom:
+            raise RuntimeError("api down")
+        return self._items
+
+
+class _CapturePublisher:
+    def __init__(self):
+        self.pushed = []
+
+    async def push(self, event):
+        self.pushed.append(event)
+
+
+def test_source_health_error_then_recovery(cfg):
+    from mag7bot import db
+
+    now = 1_700_000_000.0
+    assert db.record_source_error(cfg.db_path, "finnhub", "boom", now) == 1
+    assert db.record_source_error(cfg.db_path, "finnhub", "boom again", now + 1) == 2
+    # A successful fetch after errors is reported as a recovery and resets count.
+    assert db.record_source_ok(cfg.db_path, "finnhub", 5, now + 2) is True
+    assert db.record_source_ok(cfg.db_path, "finnhub", 3, now + 3) is False  # no longer in error
+    health = {h["source"]: h for h in db.get_source_health(cfg.db_path)}
+    assert health["finnhub"]["consecutive_errors"] == 0
+    assert health["finnhub"]["last_count"] == 3
+
+
+def test_run_cycle_isolates_failing_source_and_alerts(cfg):
+    import asyncio
+
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    good = _NamedSource("finnhub", items=[_item("Nvidia ships new GPU", url="https://www.reuters.com/g", ts=now)])
+    bad = _NamedSource("yahoo_news", boom=True)
+    alerts = []
+
+    async def alert(msg):
+        alerts.append(msg)
+
+    pub = _CapturePublisher()
+    events = asyncio.run(ingest.run_cycle(cfg, [good, bad], pub, now, None, alert=alert))
+
+    # The good source still produced + pushed an event despite the bad one failing.
+    assert any(e.ticker == "NVDA" for e in events)
+    assert pub.pushed
+    # The failing source was isolated, recorded, and alerted exactly once.
+    health = {h["source"]: h for h in db.get_source_health(cfg.db_path)}
+    assert health["yahoo_news"]["consecutive_errors"] == 1
+    assert health["finnhub"]["consecutive_errors"] == 0
+    assert sum("failing" in m for m in alerts) == 1
