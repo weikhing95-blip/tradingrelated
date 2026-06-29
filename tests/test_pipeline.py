@@ -884,3 +884,32 @@ def test_ratings_parser_changes_only_and_material():
     assert classify.classify(up) == EventType.ANALYST
     # A genuine rating change promotes ANALYST from LOW to MATERIAL.
     assert materiality.score(up, EventType.ANALYST) == Materiality.MATERIAL
+
+
+# --------------------------------------------------------------------------- #
+# Relay: macro/Fed fallback                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_relay_macro_detector():
+    from mag7bot import telegram_monitor as tm
+
+    assert tm._is_macro("Gold slips as Fed rate-hike bets weigh") is True
+    assert tm._is_macro("US CPI comes in hotter than expected") is True
+    assert tm._is_macro("Powell signals patience on cuts") is True
+    # Pure company/product chatter is not macro.
+    assert tm._is_macro("Apple unveils a new MacBook") is False
+    assert tm._is_macro("A celebrity wedding in Hollywood") is False
+
+
+def test_macro_tagged_item_classifies_and_scores():
+    # A Fed post relayed from Telegram (ticker tagged MACRO) classifies as MACRO
+    # and is MATERIAL (commentary), not CRITICAL like an official release.
+    it = RawItem(
+        source="telegram", source_item_id="walterbloomberg-1", ticker="MACRO",
+        tier=Tier.WIRE, headline="Fed rate-hike bets weigh on gold",
+        url="https://t.me/WalterBloomberg/1", publisher="@WalterBloomberg",
+        published_at=1_700_000_000.0,
+    )
+    assert classify.classify(it) == EventType.MACRO
+    assert materiality.score(it, EventType.MACRO) == Materiality.MATERIAL
