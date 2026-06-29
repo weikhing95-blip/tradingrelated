@@ -112,20 +112,53 @@ async def preflight(bot, cfg: Config) -> bool:
     return ok
 
 
+def _session_is_authenticated(session_path: Path) -> bool:
+    """True only if the on-disk pyrogram session is actually logged in.
+
+    Pyrogram creates the .session SQLite file the moment a Client connects —
+    even when authentication then fails — so a blank, useless session file can
+    linger on a persistent volume. A real session has a non-empty ``auth_key``
+    and a ``user_id`` in its ``sessions`` table; anything else we treat as junk
+    that should be replaced from TELEGRAM_SESSION_B64.
+    """
+    try:
+        if not session_path.exists() or session_path.stat().st_size == 0:
+            return False
+        import sqlite3
+
+        con = sqlite3.connect(f"file:{session_path}?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "SELECT auth_key, user_id FROM sessions LIMIT 1"
+            ).fetchone()
+        finally:
+            con.close()
+        return bool(row and row[0] and row[1])
+    except Exception:
+        return False
+
+
 def _materialize_session(session_path: Path) -> None:
-    """Write the pyrogram session file from the TELEGRAM_SESSION_B64 env var
-    (gzip+base64) when it isn't already present on disk.
+    """Install the pyrogram session file from the TELEGRAM_SESSION_B64 env var
+    (gzip+base64) unless a real, authenticated session is already on disk.
 
     This lets a platform without a writable file-upload path (e.g. Railway)
     bootstrap the relay session purely from an environment variable: run
     ``telegram_setup`` locally once, paste the encoded session into the var,
-    and the bot recreates the file on first boot. A real session already on
-    the volume always wins — we never overwrite it.
+    and the bot installs the file on boot. A genuinely authenticated session
+    already on the volume always wins; a blank session left behind by a prior
+    failed start does NOT block the restore.
     """
-    if session_path.exists():
+    if _session_is_authenticated(session_path):
         return
     blob = os.getenv("TELEGRAM_SESSION_B64", "").strip()
     if not blob:
+        if session_path.exists():
+            print(
+                "⚠️  On-disk Telegram session is not authenticated and "
+                "TELEGRAM_SESSION_B64 is not set — the monitor cannot log in. "
+                "Set the env var (see README) or run telegram_setup."
+            )
         return
     try:
         raw = base64.b64decode(blob)
@@ -134,6 +167,11 @@ def _materialize_session(session_path: Path) -> None:
         except OSError:
             pass
         session_path.parent.mkdir(parents=True, exist_ok=True)
+        # Clear any blank session + its sqlite sidecars before writing the good one.
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            sidecar = session_path.with_name(session_path.name + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
         session_path.write_bytes(raw)
         print(f"🔐 Restored Telegram session from TELEGRAM_SESSION_B64 → {session_path}")
     except Exception as exc:  # malformed var must not block startup
