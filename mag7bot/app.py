@@ -258,6 +258,7 @@ def run_live(cfg: Config) -> None:
 
     from . import commands, scheduler
     from .sources import (
+        AnalystRatingsSource,
         EarningsSource,
         EdgarSource,
         FedSource,
@@ -265,6 +266,7 @@ def run_live(cfg: Config) -> None:
         GoogleNewsSource,
         InsiderSource,
         MacroSource,
+        TradingHaltsSource,
         YahooNewsSource,
     )
 
@@ -302,6 +304,12 @@ def run_live(cfg: Config) -> None:
     if cfg.enable_fed_rss:
         sources["fed"] = FedSource()
         print("🏦 Fed RSS source ENABLED (FOMC decisions + governor speeches).")
+    if cfg.enable_trading_halts:
+        sources["halts"] = TradingHaltsSource()
+        print("🛑 Trading-halts source ENABLED (Nasdaq RSS; critical).")
+    if cfg.enable_analyst_ratings:
+        sources["ratings"] = AnalystRatingsSource(cfg.finnhub_api_key)
+        print("🟡 Analyst-ratings source ENABLED (Finnhub upgrade/downgrade feed).")
     application.bot_data["sources"] = sources
 
     commands.register(application)

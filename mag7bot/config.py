@@ -48,6 +48,8 @@ EARNINGS_POLL_SECONDS = 900  # Finnhub earnings calendar (uses the Finnhub key)
 MACRO_POLL_SECONDS = 1800  # FRED macro releases (only when FRED_API_KEY is set)
 INSIDER_POLL_SECONDS = 1800  # Finnhub insider transactions (large trades)
 FED_RSS_POLL_SECONDS = 300   # Federal Reserve RSS (speeches + FOMC press releases)
+HALTS_POLL_SECONDS = 60      # Nasdaq trading-halts RSS (free; time-critical)
+RATINGS_POLL_SECONDS = 600   # Finnhub analyst upgrade/downgrade feed
 
 # Large-insider-trade threshold: trades above this value get an instant push.
 INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
@@ -123,6 +125,8 @@ class Config:
     enable_yahoo_news: bool = False
     enable_insider: bool = True   # Finnhub large-insider-trade alerts (uses Finnhub key)
     enable_fed_rss: bool = True   # Fed speeches + FOMC press releases (free RSS)
+    enable_trading_halts: bool = True   # Nasdaq trading-halts RSS (free, critical)
+    enable_analyst_ratings: bool = True  # Finnhub upgrade/downgrade feed (uses Finnhub key)
 
     # Freshness: news items older than this (hours) are dropped, and news with
     # no usable timestamp is dropped too. Lower = fresher feed. SEC filings are
@@ -204,6 +208,8 @@ def load_config(dry_run: bool = False) -> Config:
     enable_yahoo_news = os.environ.get("ENABLE_YAHOO_NEWS", "").strip().lower() in _truthy
     enable_insider = os.environ.get("ENABLE_INSIDER", "true").strip().lower() not in _falsy
     enable_fed_rss = os.environ.get("ENABLE_FED_RSS", "true").strip().lower() not in _falsy
+    enable_trading_halts = os.environ.get("ENABLE_TRADING_HALTS", "true").strip().lower() not in _falsy
+    enable_analyst_ratings = os.environ.get("ENABLE_ANALYST_RATINGS", "true").strip().lower() not in _falsy
     enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "true").strip().lower() not in _falsy
 
     tg_api_id_raw = os.environ.get("TELEGRAM_API_ID", "0").strip() or "0"
@@ -244,6 +250,8 @@ def load_config(dry_run: bool = False) -> Config:
         enable_yahoo_news=enable_yahoo_news,
         enable_insider=enable_insider,
         enable_fed_rss=enable_fed_rss,
+        enable_trading_halts=enable_trading_halts,
+        enable_analyst_ratings=enable_analyst_ratings,
         telegram_api_id=tg_api_id,
         telegram_api_hash=tg_api_hash,
         telegram_session_path=tg_session,

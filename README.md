@@ -301,9 +301,19 @@ Beyond per-company news, the bot covers what moves these names:
 - **Executive commentary:** CEO/CFO interviews and earnings-call remarks in the
   news feeds are detected (🎙) and pushed. Best-effort — depends on the wires
   covering it.
+- **Trading halts (`halts`, free):** polls the Nasdaq Trader trading-halts RSS
+  and posts when a watched name is halted or resumes, e.g.
+  `🛑 NVDA trading halted (LUDP)`. Tier 1, critical (instant push). Toggle with
+  `ENABLE_TRADING_HALTS`.
+- **Analyst ratings (`ratings`, uses the Finnhub key):** a structured
+  upgrade/downgrade/initiation feed (firm + from→to grade), e.g.
+  `$NVDA Morgan Stanley upgrades NVDA to Overweight (from Equal-Weight)` — more
+  reliable than guessing from headlines. Genuine rating changes are material;
+  reiterations are dropped. Toggle with `ENABLE_ANALYST_RATINGS`.
 
-Structured sources (EDGAR, earnings, macro) bypass the publisher whitelist and
-the company-relevance gate — they're trusted data, not free-text news.
+Structured sources (EDGAR, earnings, macro, halts, ratings) bypass the publisher
+whitelist and the company-relevance gate — they're trusted data, not free-text
+news.
 
 ## Summaries (bite-size)
 

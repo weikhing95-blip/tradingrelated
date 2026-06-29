@@ -28,6 +28,7 @@ _BASE: dict[EventType, Materiality] = {
     EventType.EARNINGS: Materiality.CRITICAL,
     EventType.MA: Materiality.CRITICAL,
     EventType.MACRO: Materiality.CRITICAL,  # CPI/PCE/claims — market-moving
+    EventType.TRADING_HALT: Materiality.CRITICAL,  # exchange halt — always critical
     EventType.SEC_FILING: Materiality.MATERIAL,
     EventType.LEGAL_REGULATORY: Materiality.MATERIAL,
     EventType.MANAGEMENT_CHANGE: Materiality.MATERIAL,
@@ -73,6 +74,11 @@ def score(item: RawItem, event_type: EventType) -> Materiality:
     if item.source == "insider":
         value = item.payload.get("value_usd", 0)
         return Materiality.MATERIAL if value >= INSIDER_THRESHOLD_USD else Materiality.LOW
+    # Structured analyst feed: the source already pre-filters to genuine rating
+    # *changes* (upgrades/downgrades/initiations), so they're material — unlike
+    # headline-guessed analyst chatter, which stays LOW unless a hint promotes it.
+    if item.source == "ratings":
+        return Materiality.MATERIAL
 
     # Mega product launches override into CRITICAL.
     if event_type == EventType.PRODUCT_LAUNCH:

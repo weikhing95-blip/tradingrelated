@@ -15,12 +15,15 @@ from .edgar import EdgarSource
 from .fed import FedSource
 from .finnhub import FinnhubSource
 from .google_news import GoogleNewsSource
+from .halts import TradingHaltsSource
 from .insider import InsiderSource
 from .macro import MacroSource
+from .ratings import AnalystRatingsSource
 from .yahoo_news import YahooNewsSource
 
 __all__ = [
     "Source",
+    "AnalystRatingsSource",
     "EarningsSource",
     "EdgarSource",
     "FedSource",
@@ -28,5 +31,6 @@ __all__ = [
     "GoogleNewsSource",
     "InsiderSource",
     "MacroSource",
+    "TradingHaltsSource",
     "YahooNewsSource",
 ]

@@ -112,6 +112,10 @@ def classify(item: RawItem) -> EventType:
         return EventType.EARNINGS
     if item.source == "insider":
         return EventType.SEC_FILING  # Form 4 via Finnhub
+    if item.source == "halts":
+        return EventType.TRADING_HALT
+    if item.source == "ratings":
+        return EventType.ANALYST  # structured upgrade/downgrade feed
     if item.source == "fed":
         # Fed speeches → exec commentary (MATERIAL); press releases → macro (CRITICAL).
         return EventType.EXEC_COMMENTARY if item.payload.get("feed_type") == "speech" else EventType.MACRO
