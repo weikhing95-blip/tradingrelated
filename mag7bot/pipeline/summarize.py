@@ -20,7 +20,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from ..config import MODEL
+from ..config import HAIKU_MODEL
 
 MAX_LEN = 320  # bite-size: ~1-3 sentences
 
@@ -67,10 +67,10 @@ def _faithful(summary: str, source_text: str) -> bool:
     return all(n.replace(",", "") in src_nums for n in _NUM.findall(summary))
 
 
-def _llm_bite_size(headline: str, body: str, client) -> Optional[str]:
+def _llm_bite_size(headline: str, body: str, client, model: str = HAIKU_MODEL) -> Optional[str]:
     content = f"Headline: {headline}\n\nArticle text: {body or '(none provided)'}"
     resp = client.messages.parse(
-        model=MODEL,
+        model=model,
         max_tokens=2000,
         system=_SYSTEM,
         messages=[{"role": "user", "content": content}],
@@ -91,17 +91,19 @@ def choose_summary(
     mode: str = "verbatim",
     client=None,
     use_llm: bool = False,
+    model: str = HAIKU_MODEL,
 ) -> str:
     """Return the bite-size summary for an item.
 
     ``use_llm`` lets the caller gate LLM compression to material/push items so
-    digest items don't each cost an API call. Falls back to rich-verbatim on any
-    error, missing client, or a faithfulness-guard failure.
+    digest items don't each cost an API call. ``model`` defaults to a cheap
+    fast model (Haiku). Falls back to rich-verbatim on any error, missing
+    client, or a faithfulness-guard failure.
     """
     rich = rich_verbatim(headline, body)
     if mode == "llm" and use_llm and client is not None:
         try:
-            llm = _llm_bite_size(headline, body, client)
+            llm = _llm_bite_size(headline, body, client, model)
         except Exception:
             llm = None
         if llm:

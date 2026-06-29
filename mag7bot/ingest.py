@@ -49,7 +49,10 @@ def category_enabled(cfg: Config, ticker: str, event_type) -> bool:
 
 
 def in_quiet_hours(cfg: Config, now: float) -> bool:
-    """True if `now` (SGT) falls inside the configured quiet window."""
+    """True if `now` (SGT) falls inside the configured quiet window. Returns
+    False when quiet hours are disabled (24/7 — the default for this feed)."""
+    if not cfg.quiet_hours_enabled:
+        return False
     hour = datetime.fromtimestamp(now, tz=SGT).hour
     start, end = cfg.quiet_start_hour, cfg.quiet_end_hour
     if start <= end:
@@ -59,12 +62,25 @@ def in_quiet_hours(cfg: Config, now: float) -> bool:
 
 
 def should_push_now(cfg: Config, event: Event, now: float) -> bool:
-    """Material/critical events push immediately; quiet hours suppress all but
-    critical; muted tickers never push (they still surface in the digest)."""
-    if not event.materiality.is_push:
-        return False
+    """Decide whether an event pushes instantly vs waits for the digest.
+
+    - firehose volume: push everything on-watchlist (incl. LOW), 24/7.
+    - moderate: push material/critical only.
+    - low: push critical only.
+    Muted tickers never push; quiet hours (if enabled) suppress all but critical.
+    """
     if db.is_muted(cfg.db_path, cfg.feed_id, event.ticker, now):
         return False
+
+    if cfg.feed_volume == "firehose":
+        pushable = True
+    elif cfg.feed_volume == "low":
+        pushable = event.materiality == Materiality.CRITICAL
+    else:  # moderate
+        pushable = event.materiality.is_push
+    if not pushable:
+        return False
+
     if event.materiality != Materiality.CRITICAL and in_quiet_hours(cfg, now):
         return False
     return True
@@ -130,8 +146,11 @@ def build_events(
         mat = materiality.score(primary, event_type)
         # LLM compression is gated to push items so the digest doesn't cost an
         # API call per line; low-materiality items use the free rich-verbatim.
+        # In firehose mode we LLM-summarise minor items too (they get pushed).
+        use_llm = mat.is_push or cfg.feed_volume == "firehose"
         summary = summarize.choose_summary(
-            primary.headline, primary.body, cfg.summary_mode, client, use_llm=mat.is_push
+            primary.headline, primary.body, cfg.summary_mode, client,
+            use_llm=use_llm, model=cfg.summary_model,
         )
         event = Event(
             ticker=primary.ticker,

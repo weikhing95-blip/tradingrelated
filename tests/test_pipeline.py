@@ -96,6 +96,54 @@ def test_classify_word_boundary():
     assert classify.classify(_item("Company issues new guidance")) != EventType.LEGAL_REGULATORY
 
 
+def _event(materiality, ticker="NVDA", etype=EventType.NEWS):
+    from mag7bot.schemas import Event, SentMode
+    return Event(ticker=ticker, type=etype, summary="x", links=[], tier=Tier.WIRE,
+                 source_name="Reuters", materiality=materiality, confirmed_count=1,
+                 sent_mode=SentMode.PENDING, ts=1_700_000_000.0, id=1)
+
+
+def test_feed_volume_routing(cfg):
+    import dataclasses
+    from mag7bot import ingest
+    from mag7bot.schemas import Materiality
+
+    now = 1_700_000_000.0
+    fire = dataclasses.replace(cfg, feed_volume="firehose")
+    mod = dataclasses.replace(cfg, feed_volume="moderate")
+    low = dataclasses.replace(cfg, feed_volume="low")
+
+    # Firehose pushes even LOW; moderate pushes MATERIAL+; low only CRITICAL.
+    assert ingest.should_push_now(fire, _event(Materiality.LOW), now) is True
+    assert ingest.should_push_now(mod, _event(Materiality.LOW), now) is False
+    assert ingest.should_push_now(mod, _event(Materiality.MATERIAL), now) is True
+    assert ingest.should_push_now(low, _event(Materiality.MATERIAL), now) is False
+    assert ingest.should_push_now(low, _event(Materiality.CRITICAL), now) is True
+
+
+def test_24_7_no_quiet_hours(cfg):
+    import dataclasses
+    from datetime import datetime
+    from mag7bot import ingest
+    from mag7bot.config import SGT
+
+    three_am_sgt = datetime(2026, 6, 1, 3, 0, tzinfo=SGT).timestamp()
+    on = dataclasses.replace(cfg, quiet_hours_enabled=True, quiet_start_hour=0, quiet_end_hour=7)
+    off = dataclasses.replace(cfg, quiet_hours_enabled=False)
+    assert ingest.in_quiet_hours(on, three_am_sgt) is True
+    assert ingest.in_quiet_hours(off, three_am_sgt) is False  # 24/7 default
+
+
+def test_format_alert_price_move():
+    from mag7bot.schemas import Event, SentMode
+    ev = Event(ticker="NVDA", type=EventType.EARNINGS, summary="Q2 beat",
+               links=["https://www.reuters.com/a"], tier=Tier.WIRE, source_name="Reuters",
+               materiality=Materiality.CRITICAL, confirmed_count=1,
+               sent_mode=SentMode.PENDING, ts=0.0)
+    msg = formatter.format_alert(ev, price_move="shares +3.2%")
+    assert "📈 shares +3.2%" in msg
+
+
 def test_extended_companies_tracked():
     from mag7bot import companies
 

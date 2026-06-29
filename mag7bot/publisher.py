@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from . import db
+from . import db, quotes
 from .config import Config
 from .pipeline.formatter import format_alert, format_digest
-from .schemas import Event, SentMode
+from .schemas import Event, EventType, SentMode
 
 
 class Publisher(Protocol):
@@ -28,14 +28,23 @@ class Publisher(Protocol):
 class ChannelPublisher:
     """Posts to the configured Telegram channel."""
 
-    def __init__(self, bot, channel_id: str) -> None:
+    def __init__(self, bot, channel_id: str, finnhub_api_key: str = "") -> None:
         self._bot = bot
         self._channel_id = channel_id
+        self._finnhub_api_key = finnhub_api_key
 
     async def push(self, event: Event) -> None:
+        # Best-effort price reaction for company events (skip economy-wide).
+        price = ""
+        if (
+            self._finnhub_api_key
+            and event.type != EventType.MACRO
+            and event.ticker.upper() != "MACRO"
+        ):
+            price = await quotes.price_move(event.ticker, self._finnhub_api_key)
         await self._bot.send_message(
             chat_id=self._channel_id,
-            text=format_alert(event),
+            text=format_alert(event, price_move=price),
             parse_mode="HTML",
             disable_web_page_preview=True,
         )

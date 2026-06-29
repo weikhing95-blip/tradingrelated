@@ -186,7 +186,7 @@ def run_live(cfg: Config) -> None:
     application.bot_data["cfg"] = cfg
     application.bot_data["client"] = _make_client(cfg)
     application.bot_data["publisher"] = publisher_mod.ChannelPublisher(
-        application.bot, cfg.channel_id
+        application.bot, cfg.channel_id, cfg.finnhub_api_key
     )
     # Live whitelist = config defaults + owner-approved additions (DB).
     whitelist_provider = lambda: ingest.effective_whitelist(cfg)  # noqa: E731
