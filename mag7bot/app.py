@@ -222,7 +222,13 @@ async def _post_init(application) -> None:
                 publisher=application.bot_data["publisher"],
                 llm_client=application.bot_data.get("client"),
             )
-            asyncio.create_task(monitor.start())
+            # CRITICAL: the event loop holds only a weak reference to a task, so
+            # an unreferenced create_task() result can be garbage-collected
+            # mid-run ("Task was destroyed but it is pending!"). Keep strong
+            # references to both the task and the monitor for the app's lifetime.
+            task = asyncio.create_task(monitor.start())
+            application.bot_data["monitor"] = monitor
+            application.bot_data["monitor_task"] = task
             print("📡 Telegram channel monitor STARTING (pyrogram user client).")
         except Exception as exc:  # ImportError, bad session, etc. — never fatal
             print(f"⚠️  Telegram channel monitor not started: {exc}")
