@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Sequence
+from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
 from . import db
 from .config import DEDUP_WINDOW_HOURS, SGT, Config
@@ -254,8 +254,15 @@ async def run_cycle(
     publisher,
     now: float,
     client=None,
+    alert: Optional[Callable[[str], Awaitable[None]]] = None,
 ) -> List[Event]:
-    """Fetch from each source, build events, push the material ones."""
+    """Fetch from each source, build events, push the material ones.
+
+    Each source is fetched in isolation: one source raising never aborts the
+    cycle or the other sources. Per-source health is recorded, and ``alert`` (if
+    given) is called once on an ok→error transition and once on recovery, so the
+    owner is told when a feed breaks or comes back — not on every cycle.
+    """
     tickers = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
     if not tickers:
         return []
@@ -265,7 +272,18 @@ async def run_cycle(
 
     raw: List[RawItem] = []
     for source in sources:
-        fetched = await source.fetch_new(tickers, _is_seen)
+        try:
+            fetched = await source.fetch_new(tickers, _is_seen)
+        except Exception as exc:  # isolate: a broken source never kills the cycle
+            detail = f"{type(exc).__name__}: {exc}"
+            n = db.record_source_error(cfg.db_path, source.name, detail, now)
+            print(f"⚠️  Source '{source.name}' fetch failed (#{n}): {detail}")
+            if alert and n == 1:  # alert once, on the transition into failure
+                await alert(f"⚠️ Source '{source.name}' is failing — {detail}")
+            continue
+        recovered = db.record_source_ok(cfg.db_path, source.name, len(fetched), now)
+        if alert and recovered:
+            await alert(f"✅ Source '{source.name}' recovered — {len(fetched)} item(s).")
         for item in fetched:
             db.mark_seen(cfg.db_path, item.source, item.source_item_id, item.ticker)
         raw.extend(fetched)
@@ -276,6 +294,12 @@ async def run_cycle(
         if event.id is None:
             continue
         if should_push_now(cfg, event, now):
-            await publisher.push(event)
-            db.mark_event_sent(cfg.db_path, event.id, SentMode.PUSH)
+            try:
+                await publisher.push(event)
+                db.mark_event_sent(cfg.db_path, event.id, SentMode.PUSH)
+            except Exception as exc:  # channel post failed (e.g. lost admin)
+                detail = f"{type(exc).__name__}: {exc}"
+                print(f"⚠️  Push to channel failed: {detail}")
+                if alert:
+                    await alert(f"⚠️ Failed to post to the channel — {detail}")
     return events

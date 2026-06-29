@@ -452,13 +452,42 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         datetime.fromtimestamp(s["last_push"], tz=SGT).strftime("%d %b, %H:%M SGT")
         if s["last_push"] else "none"
     )
-    await update.message.reply_text(
-        f"📊 MarketBrief Status (last 24h)\n"
-        f"  Events: {s['total']} total · {s['pushes']} pushed · {s['digest']} digest\n"
-        f"  Last push: {last}\n"
-        f"  Sources active: {len(sources)}\n"
-        f"  Watching: {len(tickers)} ticker(s)"
-    )
+    now = time.time()
+
+    def _age(ts) -> str:
+        if not ts:
+            return "never"
+        mins = int((now - ts) / 60)
+        if mins < 60:
+            return f"{mins}m ago"
+        if mins < 1440:
+            return f"{mins // 60}h ago"
+        return f"{mins // 1440}d ago"
+
+    lines = [
+        "📊 MarketBrief Status (last 24h)",
+        f"  Events: {s['total']} total · {s['pushes']} pushed · {s['digest']} digest",
+        f"  Last push: {last}",
+        f"  Watching: {len(tickers)} ticker(s) · {len(sources)} source(s) active",
+    ]
+
+    # Relay monitor liveness.
+    task = context.application.bot_data.get("monitor_task")
+    if cfg.telegram_api_id and cfg.telegram_api_hash:
+        alive = task is not None and not task.done()
+        lines.append(f"  Relay monitor: {'🟢 running' if alive else '🔴 not running'}")
+
+    # Per-source health (last fetch count, freshness, error state).
+    health = db.get_source_health(cfg.db_path)
+    if health:
+        lines.append("  Sources:")
+        for h in health:
+            if h["consecutive_errors"] > 0:
+                flag = f"⚠️ {h['consecutive_errors']} err — {h['last_error'][:60]}"
+            else:
+                flag = f"{h['last_count']} item(s), ok {_age(h['last_ok_ts'])}"
+            lines.append(f"    • {h['source']}: {flag}")
+    await update.message.reply_text("\n".join(lines))
 
 
 def register(application: Application) -> None:
