@@ -40,10 +40,16 @@ async def _setup() -> None:
         )
         return
 
-    session_path = cfg.db_path.parent / "telegram_user"
-    print(f"Session will be saved to: {session_path}.session")
+    # Same resolution as the runtime monitor (app._post_init), so the session
+    # created here is found there. Honour TELEGRAM_SESSION_PATH if set.
+    if cfg.telegram_session_path:
+        sp = cfg.telegram_session_path
+        session_name = sp[:-8] if sp.endswith(".session") else sp
+    else:
+        session_name = str(cfg.db_path.parent / "telegram_user")
+    print(f"Session will be saved to: {session_name}.session")
 
-    app = Client(str(session_path), api_id=api_id, api_hash=api_hash)
+    app = Client(session_name, api_id=api_id, api_hash=api_hash)
 
     async with app:
         me = await app.get_me()
