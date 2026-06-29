@@ -11,8 +11,9 @@ so it's testable against a temp DB. ``run_cycle`` adds fetching + publishing.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from . import db
 from .config import DEDUP_WINDOW_HOURS, MAX_ITEM_AGE_HOURS, SGT, Config
@@ -29,6 +30,28 @@ def _dedup_links(urls: Sequence[str]) -> List[str]:
             seen.add(u)
             out.append(u)
     return out
+
+
+def _canon_url(url: str) -> str:
+    """Canonical form of a URL for cross-ticker dedup: drop scheme, leading
+    www., query string and fragment, and a trailing slash. Empty in → empty out
+    (callers must treat empty as 'no match' so blank links never collapse)."""
+    if not url:
+        return ""
+    u = url.strip().lower()
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    u = u.split("?", 1)[0].split("#", 1)[0]
+    return u.rstrip("/")
+
+
+def _find_url_dup(links: Sequence[str], url_to_event: Dict[str, Event]) -> Optional[Event]:
+    """The already-stored event (any ticker) that shares one of these URLs."""
+    for u in links:
+        c = _canon_url(u)
+        if c and c in url_to_event:
+            return url_to_event[c]
+    return None
 
 
 def effective_whitelist(cfg: Config) -> List[str]:
@@ -128,10 +151,31 @@ def build_events(
     groups = dedup.collapse(approved)
     cutoff = now - DEDUP_WINDOW_HOURS * 3600
 
+    # Cross-ticker URL dedup: one article often surfaces under several tickers
+    # (e.g. a "Micron vs Nvidia" piece is returned for both MU and NVDA). Map
+    # each recently-alerted URL to its event so we post the story once, not once
+    # per company. Seeded from the window, kept fresh as we insert below.
+    url_to_event: Dict[str, Event] = {}
+    for ev in db.recent_events_window(cfg.db_path, cfg.feed_id, cutoff):
+        for u in ev.links:
+            c = _canon_url(u)
+            if c:
+                url_to_event.setdefault(c, ev)
+
     events: List[Event] = []
     for group in groups:
         primary = group[0]
         links = _dedup_links([i.url for i in group])
+
+        # Same article already alerted under any ticker → merge links, bump the
+        # cross-confirm count, and don't post a duplicate.
+        url_dup = _find_url_dup(links, url_to_event)
+        if url_dup and url_dup.id is not None:
+            merged = _dedup_links(url_dup.links + links)
+            count = max(url_dup.confirmed_count, len(merged))
+            db.update_event_links(cfg.db_path, url_dup.id, merged, count)
+            url_dup.links = merged
+            continue
 
         recent = db.recent_events(cfg.db_path, cfg.feed_id, primary.ticker, cutoff)
         existing = dedup.find_existing(primary.headline, primary.ticker, recent)
@@ -167,6 +211,12 @@ def build_events(
         )
         event.id = db.insert_event(cfg.db_path, cfg.feed_id, event)
         events.append(event)
+        # Register this event's URLs so a later group in the same batch that
+        # carries the same article (under another ticker) collapses into it.
+        for u in event.links:
+            c = _canon_url(u)
+            if c:
+                url_to_event.setdefault(c, event)
     return events
 
 

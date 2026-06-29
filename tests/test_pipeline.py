@@ -253,8 +253,9 @@ def test_format_macro_no_cashtag():
                source_name="FRED", materiality=Materiality.CRITICAL, confirmed_count=1,
                sent_mode=SentMode.PENDING, ts=0.0)
     msg = formatter.format_alert(ev)
-    # Line 1: MACRO · ECONOMIC DATA  📊 — no $TICKER cashtag for economy events.
-    assert msg.startswith("MACRO · ECONOMIC DATA")
+    # Line 1: MACRO  📊 — no $TICKER cashtag, no text type label (emoji only).
+    assert msg.startswith("MACRO")
+    assert "ECONOMIC DATA" not in msg  # text type label dropped
     assert "📊" in msg
     assert "$MACRO" not in msg  # no cashtag for economy-wide events
     # Line 2 carries the actual indicator + reading.
@@ -380,9 +381,10 @@ def test_format_alert_spec():
     )
     msg = formatter.format_alert(ev)
     lines = msg.split("\n")
-    # Line 1: $TICKER · EVENT TYPE  emoji (the "Tier N —" label is gone).
-    assert lines[0].startswith("$NVDA · ")
+    # Line 1: $TICKER  emoji — no text type label, no "Tier N —" label.
+    assert lines[0].startswith("$NVDA")
     assert "🔴" in lines[0]
+    assert " · " not in lines[0]  # event-type text label dropped from line 1
     assert "Tier 2" not in msg  # users never see the tier label anymore
     # Line 2: bite-size summary on its own line (no cashtag duplication).
     assert lines[1] == "NVIDIA to acquire Run:ai"
@@ -615,3 +617,29 @@ def test_build_events_cross_confirm_updates_not_duplicates(cfg):
     assert len(recent) == 1
     assert recent[0].confirmed_count == 2
     assert len(recent[0].links) == 2
+
+
+def test_build_events_same_article_across_tickers_posts_once(cfg):
+    """A multi-company article (same URL surfaced for two tickers) must produce
+    a single alert, not one per ticker (the Micron-vs-Nvidia fool.com case)."""
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    url = "https://www.fool.com/investing/micron-vs-nvidia-ai"
+    mu = _item("Micron stock compared to Nvidia in the AI boom", ticker="MU", url=url, ts=now)
+    nvda = _item("Nvidia is a major AI winner; article weighs Micron", ticker="NVDA", url=url, ts=now)
+
+    events = ingest.build_events(cfg, [mu, nvda], now)
+    assert len(events) == 1  # collapsed by URL across tickers
+
+    all_recent = db.recent_events_window(cfg.db_path, cfg.feed_id, now - 3600)
+    assert len(all_recent) == 1
+
+
+def test_canon_url_ignores_scheme_www_and_query():
+    from mag7bot.ingest import _canon_url
+
+    a = _canon_url("https://www.fool.com/x/article?utm=tw#top")
+    b = _canon_url("http://fool.com/x/article/")
+    assert a == b == "fool.com/x/article"
+    assert _canon_url("") == ""  # blank never matches
