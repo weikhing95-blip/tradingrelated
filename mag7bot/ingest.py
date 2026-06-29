@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
 from . import db
-from .config import DEDUP_WINDOW_HOURS, SGT, Config
+from .config import SGT, Config
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
 from .sources.base import Source
@@ -109,18 +109,19 @@ def should_push_now(cfg: Config, event: Event, now: float) -> bool:
     return True
 
 
-def build_events(
-    cfg: Config, raw_items: List[RawItem], now: float, client=None
-) -> List[Event]:
-    """Run raw items through the pipeline and persist resulting events.
+def _approved_items(cfg: Config, raw_items: List[RawItem], now: float) -> List[RawItem]:
+    """Stage 1 — whitelist + relevance + freshness filtering.
 
-    Cross-confirmations of an already-stored event update that row in place
-    (merged links, bumped count) and produce no new event — so a story is
-    alerted once, not re-sent each time another wire picks it up (PRD F4).
+    Free-text news sources go through the whitelist + company-specific relevance
+    gate; structured sources (EDGAR filings, earnings actuals, macro releases)
+    are trusted data and bypass both. Then the freshness guard keeps only the
+    latest news:
+      - SEC filings (Tier-1/PRIMARY) are always allowed — inherently current.
+      - Free-text NEWS sources MUST carry a known timestamp within the window;
+        aggregators resurface old articles (sometimes with no date), so "no
+        date" is treated as stale and dropped.
+      - Other structured feeds keep the lenient rule: drop only a known-old date.
     """
-    # Free-text news sources go through the whitelist + company-specific
-    # relevance gate; structured sources (EDGAR filings, earnings actuals, macro
-    # releases) are trusted data and bypass both.
     news = [it for it in raw_items if it.source in relevance.NEWS_SOURCES]
     structured = [it for it in raw_items if it.source not in relevance.NEWS_SOURCES]
 
@@ -129,15 +130,6 @@ def build_events(
     news = [it for it in news if relevance.is_company_specific(it.headline, it.ticker)]
 
     approved = structured + news
-
-    # Recency guard: only the latest news reaches the channel.
-    #   - SEC filings (Tier-1/PRIMARY) are always allowed — inherently current.
-    #   - Free-text NEWS sources (Finnhub/Yahoo/Google) MUST carry a known
-    #     timestamp within the freshness window. Aggregators resurface old
-    #     articles, sometimes with a missing/zero date, so "no date" is treated
-    #     as stale and dropped — not kept.
-    #   - Other structured feeds (earnings/macro/Fed/insider/relay) keep the
-    #     lenient rule: drop only when a known date is clearly too old.
     age_cutoff = now - cfg.max_item_age_hours * 3600
 
     def _fresh_enough(it: RawItem) -> bool:
@@ -147,23 +139,76 @@ def build_events(
             return bool(it.published_at) and it.published_at >= age_cutoff
         return (not it.published_at) or it.published_at >= age_cutoff
 
-    approved = [it for it in approved if _fresh_enough(it)]
+    return [it for it in approved if _fresh_enough(it)]
 
+
+def _classify_and_enable(cfg: Config, approved: List[RawItem]):
+    """Stage 2 — persist raw items, classify each, drop categories disabled for
+    the ticker. Returns (kept_items, type_of) where type_of is keyed by id()."""
     for item in approved:
         db.insert_raw_item(cfg.db_path, item)
-
-    # Classify once, then drop items whose event type is disabled for the ticker.
     type_of = {id(item): classify.classify(item) for item in approved}
-    approved = [
-        item for item in approved if category_enabled(cfg, item.ticker, type_of[id(item)])
+    kept = [
+        it for it in approved if category_enabled(cfg, it.ticker, type_of[id(it)])
     ]
+    return kept, type_of
+
+
+def _merge_links_into(cfg: Config, existing: Event, links: List[str]) -> None:
+    """Fold a duplicate story's links into an already-stored event in place."""
+    merged = _dedup_links(existing.links + links)
+    count = max(existing.confirmed_count, len(merged))
+    db.update_event_links(cfg.db_path, existing.id, merged, count)
+    existing.links = merged
+
+
+def _make_event(cfg: Config, group: List[RawItem], event_type, client) -> Event:
+    """Stage 4 — build a send-ready Event from a same-story group."""
+    primary = group[0]
+    mat = materiality.score(primary, event_type)
+    # LLM compression is gated to push items so the digest doesn't cost an API
+    # call per line; in firehose mode we summarise minor items too (all pushed).
+    use_llm = mat.is_push or cfg.feed_volume == "firehose"
+    summary = summarize.choose_summary(
+        primary.headline, primary.body, cfg.summary_mode, client,
+        use_llm=use_llm, model=cfg.summary_model,
+    )
+    return Event(
+        ticker=primary.ticker,
+        type=event_type,
+        summary=summary,
+        links=_dedup_links([i.url for i in group]),
+        tier=primary.tier,
+        source_name=_source_name(primary),
+        materiality=mat,
+        confirmed_count=len(group),
+        unconfirmed=materiality.is_unconfirmed(primary.tier, len(group)),
+        sent_mode=SentMode.PENDING,
+        ts=primary.published_at,
+    )
+
+
+def build_events(
+    cfg: Config, raw_items: List[RawItem], now: float, client=None
+) -> List[Event]:
+    """Run raw items through the pipeline and persist resulting events.
+
+    Cross-confirmations of an already-stored event update that row in place
+    (merged links, bumped count) and produce no new event — so a story is
+    alerted once, not re-sent each time another wire picks it up (PRD F4).
+
+    Stages: filter (whitelist/relevance/freshness) → classify+category →
+    dedup (same-story collapse, cross-ticker URL, cross-window) → build.
+    """
+    approved = _approved_items(cfg, raw_items, now)
+    approved, type_of = _classify_and_enable(cfg, approved)
     groups = dedup.collapse(approved)
-    cutoff = now - DEDUP_WINDOW_HOURS * 3600
+    cutoff = now - cfg.dedup_window_hours * 3600
 
     # Cross-ticker URL dedup: one article often surfaces under several tickers
-    # (e.g. a "Micron vs Nvidia" piece is returned for both MU and NVDA). Map
-    # each recently-alerted URL to its event so we post the story once, not once
-    # per company. Seeded from the window, kept fresh as we insert below.
+    # (e.g. a "Micron vs Nvidia" piece returned for both MU and NVDA). Map each
+    # recently-alerted URL to its event so we post the story once, not once per
+    # company. Seeded from the window, kept fresh as we insert below.
     url_to_event: Dict[str, Event] = {}
     for ev in db.recent_events_window(cfg.db_path, cfg.feed_id, cutoff):
         for u in ev.links:
@@ -176,52 +221,24 @@ def build_events(
         primary = group[0]
         links = _dedup_links([i.url for i in group])
 
-        # Same article already alerted under any ticker → merge links, bump the
-        # cross-confirm count, and don't post a duplicate.
+        # Same article already alerted under any ticker → merge, don't repost.
         url_dup = _find_url_dup(links, url_to_event)
         if url_dup and url_dup.id is not None:
-            merged = _dedup_links(url_dup.links + links)
-            count = max(url_dup.confirmed_count, len(merged))
-            db.update_event_links(cfg.db_path, url_dup.id, merged, count)
-            url_dup.links = merged
+            _merge_links_into(cfg, url_dup, links)
             continue
 
+        # Same story already alerted for this ticker (paraphrased headline).
         recent = db.recent_events(cfg.db_path, cfg.feed_id, primary.ticker, cutoff)
         existing = dedup.find_existing(primary.headline, primary.ticker, recent)
         if existing and existing.id is not None:
-            merged = _dedup_links(existing.links + links)
-            count = max(existing.confirmed_count, len(merged))
-            db.update_event_links(cfg.db_path, existing.id, merged, count)
+            _merge_links_into(cfg, existing, links)
             continue
 
-        event_type = type_of[id(primary)]
-        confirmed = len(group)
-        mat = materiality.score(primary, event_type)
-        # LLM compression is gated to push items so the digest doesn't cost an
-        # API call per line; low-materiality items use the free rich-verbatim.
-        # In firehose mode we LLM-summarise minor items too (they get pushed).
-        use_llm = mat.is_push or cfg.feed_volume == "firehose"
-        summary = summarize.choose_summary(
-            primary.headline, primary.body, cfg.summary_mode, client,
-            use_llm=use_llm, model=cfg.summary_model,
-        )
-        event = Event(
-            ticker=primary.ticker,
-            type=event_type,
-            summary=summary,
-            links=links,
-            tier=primary.tier,
-            source_name=_source_name(primary),
-            materiality=mat,
-            confirmed_count=confirmed,
-            unconfirmed=materiality.is_unconfirmed(primary.tier, confirmed),
-            sent_mode=SentMode.PENDING,
-            ts=primary.published_at,
-        )
+        event = _make_event(cfg, group, type_of[id(primary)], client)
         event.id = db.insert_event(cfg.db_path, cfg.feed_id, event)
         events.append(event)
-        # Register this event's URLs so a later group in the same batch that
-        # carries the same article (under another ticker) collapses into it.
+        # Register this event's URLs so a later group in the same batch carrying
+        # the same article (under another ticker) collapses into it.
         for u in event.links:
             c = _canon_url(u)
             if c:

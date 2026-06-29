@@ -1,0 +1,86 @@
+# Domain whitelist (PRD §4 hard rule). Anything outside this set is dropped.
+# One entry per line; entries are publisher names or domains as they appear in a
+# source's `publisher`/URL-host fields, normalised to lowercase. Blank lines and
+# lines starting with '#' are ignored. EDGAR and company IR are implicitly Tier 1.
+# Runtime additions (via the research agent / owner commands) live in the DB
+# whitelist_extra table, not here.
+
+# Tier 1 — primary
+sec.gov
+edgar
+
+# Tier 2 — reputable wire
+reuters
+reuters.com
+bloomberg
+bloomberg.com
+ap
+apnews.com
+associated press
+cnbc
+cnbc.com
+wsj
+wsj.com
+the wall street journal
+ft
+ft.com
+financial times
+
+# Reputable finance press / aggregators
+finance.yahoo.com
+yahoo.com
+yahoo finance
+
+# Tier 3 — aggregated events / analyst feeds
+marketwatch
+marketwatch.com
+seekingalpha.com
+businesswire
+businesswire.com
+globenewswire
+globenewswire.com
+prnewswire
+prnewswire.com
+
+# --- Diversified additions (vetted by the source-research agent) ---
+# Established financial / international press (Tier 2). Both domain and a name
+# token are listed so items match whether the feed gives a URL host
+# (Finnhub/Yahoo) or just a publisher name (Google News <source>).
+barrons.com
+barron
+investors.com
+investor's business daily
+nikkei.com
+asia.nikkei.com
+nikkei
+economist.com
+the economist
+axios.com
+axios
+bbc.com
+bbc
+theguardian.com
+the guardian
+caixinglobal.com
+caixin
+scmp.com
+south china morning post
+
+# Analyst / data / ratings providers (Tier 3, primary for ratings actions).
+morningstar.com
+morningstar
+spglobal.com
+s&p global
+moodys.com
+moody
+fitchratings.com
+fitch ratings
+
+# Primary / regulatory / exchange (Tier 1, low-volume but authoritative).
+nyse.com
+federalreserve.gov
+home.treasury.gov
+treasury.gov
+
+# NB: nasdaq.com deliberately excluded — it republishes syndicated
+# listicle/opinion content under its own domain (would reintroduce noise).

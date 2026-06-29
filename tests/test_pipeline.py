@@ -61,6 +61,16 @@ def test_whitelist_wsj_not_mangled():
     assert whitelist.is_approved(wsj, WHITELIST_DOMAINS)
 
 
+def test_whitelist_loaded_from_data_file():
+    # WHITELIST_DOMAINS now loads from data/whitelist_domains.txt, lowercased,
+    # comments stripped. Sanity-check the load wired up correctly.
+    assert len(WHITELIST_DOMAINS) >= 50
+    assert "reuters.com" in WHITELIST_DOMAINS
+    assert "s&p global" in WHITELIST_DOMAINS
+    assert "nasdaq.com" not in WHITELIST_DOMAINS  # deliberately excluded
+    assert all(d == d.lower() and not d.startswith("#") for d in WHITELIST_DOMAINS)
+
+
 # --------------------------------------------------------------------------- #
 # classify                                                                      #
 # --------------------------------------------------------------------------- #
