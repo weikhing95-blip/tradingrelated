@@ -328,6 +328,53 @@ def test_dedup_does_not_cross_tickers():
     assert len(groups) == 2
 
 
+def test_dedup_matches_reordered_headline_via_jaccard():
+    """Same facts, different word order across outlets — SequenceMatcher's
+    sequence ratio dips below threshold, but token-overlap (Jaccard) catches
+    it, so the two collapse into one story."""
+    a = _item("Nvidia unveils Blackwell GPU architecture at GTC keynote")
+    b = _item("At GTC keynote, Nvidia unveils its Blackwell GPU architecture")
+    assert dedup.similar(
+        dedup.normalize(a.headline, "NVDA"), dedup.normalize(b.headline, "NVDA")
+    )
+
+
+def test_find_existing_matches_on_dedup_key_not_summary():
+    """The stored summary is a paraphrase that no longer resembles the headline;
+    dedup must match against the event's dedup_key (normalised headline)."""
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    headline = "Nvidia to acquire Run:ai in a deal"
+    ev = Event(
+        ticker="NVDA",
+        type=EventType.MA,
+        summary="The chipmaker is buying an Israeli orchestration firm.",  # unlike headline
+        tier=Tier.WIRE,
+        materiality=Materiality.CRITICAL,
+        ts=1_700_000_000.0,
+        dedup_key=dedup.normalize(headline, "NVDA"),
+    )
+    # A reworded re-report of the same story still matches via dedup_key.
+    assert dedup.find_existing("NVIDIA to acquire Run:ai in deal", "NVDA", [ev]) is ev
+
+
+def test_find_existing_falls_back_to_summary_for_premigration_rows():
+    """Rows written before the dedup_key column existed have an empty key; we
+    fall back to the (weaker) summary comparison so they still dedup."""
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    ev = Event(
+        ticker="NVDA",
+        type=EventType.MA,
+        summary="Nvidia to acquire Run:ai in a deal",
+        tier=Tier.WIRE,
+        materiality=Materiality.CRITICAL,
+        ts=1_700_000_000.0,
+        dedup_key="",  # pre-migration
+    )
+    assert dedup.find_existing("Nvidia to acquire Run:ai in deal", "NVDA", [ev]) is ev
+
+
 # --------------------------------------------------------------------------- #
 # materiality                                                                   #
 # --------------------------------------------------------------------------- #
@@ -407,6 +454,18 @@ def test_summarize_faithfulness_rejects_fabricated_entity():
     assert summarize._faithful("Nvidia buys Run:ai", "Nvidia to acquire Run:ai startup")
     # Sentence-initial capitalisation is not treated as a fabricated entity.
     assert summarize._faithful("Tesla shares rose", "tesla shares rose on the news")
+
+
+def test_summarize_faithfulness_allows_inflected_forms():
+    """A plural/possessive of a name that IS in the source must not be flagged
+    as fabricated — that benign mismatch was silently downgrading good LLM
+    summaries to bare headlines."""
+    src = "Nvidia introduced its Rubin GPU line at the GTC conference; Apple responded."
+    # Plural "GPUs" for source "GPU", possessive "Apple's" for "Apple" → faithful.
+    assert summarize._faithful("Nvidia debuted its Rubin GPUs at GTC", src)
+    assert summarize._faithful("Apple's response followed the Rubin GPU reveal", src)
+    # A genuinely new name is still rejected (stemming must not over-match).
+    assert not summarize._faithful("Nvidia debuted Rubin GPUs, pressuring AMD", src)
 
 
 class _StubAnthropic:
@@ -739,6 +798,8 @@ def test_build_events_cross_confirm_updates_not_duplicates(cfg):
     assert len(recent) == 1
     assert recent[0].confirmed_count == 2
     assert len(recent[0].links) == 2
+    # The normalised headline is persisted so later cycles can dedup against it.
+    assert recent[0].dedup_key and "acquire" in recent[0].dedup_key
 
 
 def test_build_events_same_article_across_tickers_posts_once(cfg):
@@ -993,6 +1054,74 @@ def test_extract_text_rejects_boilerplate_meta():
             'up-to-date news coverage, aggregated from sources all over the world '
             'by Google News."></head><body></body></html>')
     assert article.extract_text(html) == ""  # boilerplate meta → no content
+
+
+def test_extract_text_pulls_jsonld_article_body():
+    """Modern JS-rendered pages keep the body in a JSON-LD block, not <p> tags.
+    The extractor must read it (and prefer it over a thin meta description)."""
+    from mag7bot import article
+
+    html = (
+        '<html><head>'
+        '<meta property="og:description" content="Nvidia raised its outlook.">'
+        '<script type="application/ld+json">'
+        '{"@type":"NewsArticle","headline":"Nvidia raises outlook",'
+        '"articleBody":"Nvidia said data-center revenue rose 28% to $41.1 billion '
+        'in the quarter and guided to continued growth as customers adopt Rubin."}'
+        '</script></head><body><div id="app"><p>Loading…</p></div></body></html>'
+    )
+    text = article.extract_text(html)
+    assert "28% to $41.1 billion" in text          # full body recovered
+    assert text != "Nvidia raised its outlook."    # not the thin meta blurb
+
+
+def test_extract_text_jsonld_handles_graph_wrapper():
+    """Publishers often wrap objects in an @graph list — articleBody still found."""
+    from mag7bot import article
+
+    html = (
+        '<html><head><script type="application/ld+json">'
+        '{"@context":"https://schema.org","@graph":['
+        '{"@type":"Organization","name":"Reuters"},'
+        '{"@type":"NewsArticle","articleBody":"Micron reported revenue of $41.46 '
+        'billion and adjusted EPS of $25.11, well above consensus estimates."}]}'
+        '</script></head><body></body></html>'
+    )
+    text = article.extract_text(html)
+    assert "$41.46 billion" in text and "$25.11" in text
+
+
+def test_extract_text_jsonld_ignores_malformed_block():
+    """A broken JSON-LD block must not crash extraction — fall through to prose."""
+    from mag7bot import article
+
+    html = (
+        '<html><head><script type="application/ld+json">{not valid json,,,</script>'
+        '</head><body><article><p>Tesla deliveries rose to a record in the '
+        'quarter, the company said, beating Wall Street expectations handily.</p>'
+        '</article></body></html>'
+    )
+    text = article.extract_text(html)
+    assert "Tesla deliveries rose to a record" in text
+
+
+def test_extract_text_prefers_article_region_over_page():
+    """When an <article> region exists, its prose is used and surrounding page
+    chrome (promo blocks, related links) is excluded."""
+    from mag7bot import article
+
+    html = (
+        '<html><body>'
+        '<div><p>Sign up for our newsletter to get the best stock tips daily now.</p></div>'
+        '<article><p>Apple unveiled a new iPhone with a faster chip and improved '
+        'battery life, the company announced at its fall product event today.</p>'
+        '</article>'
+        '<div><p>Related: ten other gadgets you should consider buying this year.</p></div>'
+        '</body></html>'
+    )
+    text = article.extract_text(html)
+    assert "Apple unveiled a new iPhone" in text
+    assert "newsletter" not in text and "Related" not in text
 
 
 def test_relevance_drops_price_move_filler():

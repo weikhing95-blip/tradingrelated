@@ -186,6 +186,9 @@ def _make_event(cfg: Config, group: List[RawItem], event_type, client) -> Event:
         unconfirmed=materiality.is_unconfirmed(primary.tier, len(group)),
         sent_mode=SentMode.PENDING,
         ts=primary.published_at,
+        # Store the normalised headline (not the summary) so a later cycle can
+        # match a paraphrased re-report of this same story and skip reposting.
+        dedup_key=dedup.normalize(primary.headline, primary.ticker),
     )
 
 

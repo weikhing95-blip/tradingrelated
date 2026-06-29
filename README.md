@@ -358,10 +358,15 @@ verified link + timestamp. Two modes (`SUMMARY_MODE`):
   article and extracts its body** (so the summary carries the real substance —
   e.g. a price-target or earnings figure buried past the headline), then Claude
   compresses it into a neutral 1–2 sentence summary on a **cheap fast model
-  (Haiku** by default; override with `SUMMARY_MODEL`). A source-faithfulness guard
-  rejects any summary that introduces a **number or a proper noun absent from the
-  source**, falling back to the verbatim blurb. Article fetch is best-effort
-  (paywalled/JS pages fall back to the blurb) and toggled by `ENABLE_ARTICLE_FETCH`.
+  (Haiku** by default; override with `SUMMARY_MODEL`). Extraction follows a
+  priority ladder — **JSON-LD `articleBody`** (the clean full text reputable
+  publishers embed for SEO, and often the only copy on JS-rendered pages) →
+  prose from the `<article>`/`<main>` region → a description blurb — so the
+  summarizer gets real substance instead of a thin headline. A source-faithfulness
+  guard rejects any summary that introduces a **number or a proper noun absent
+  from the source**, falling back to the verbatim blurb. Article fetch is
+  best-effort (paywalled pages fall back to the blurb) and toggled by
+  `ENABLE_ARTICLE_FETCH`.
   *(The Anthropic API is pay-as-you-go and separate from a Claude Max subscription
   — Max cannot fund it.)*
 
