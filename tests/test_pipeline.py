@@ -253,10 +253,9 @@ def test_format_macro_no_cashtag():
                source_name="FRED", materiality=Materiality.CRITICAL, confirmed_count=1,
                sent_mode=SentMode.PENDING, ts=0.0)
     msg = formatter.format_alert(ev)
-    # Line 1: MACRO  📊 — no $TICKER cashtag, no text type label (emoji only).
-    assert msg.startswith("MACRO")
+    # Line 1: MACRO — no $TICKER cashtag, no text type label, no emoji.
+    assert msg.split("\n")[0] == "MACRO"
     assert "ECONOMIC DATA" not in msg  # text type label dropped
-    assert "📊" in msg
     assert "$MACRO" not in msg  # no cashtag for economy-wide events
     # Line 2 carries the actual indicator + reading.
     assert "US Core CPI (May)" in msg
@@ -381,10 +380,9 @@ def test_format_alert_spec():
     )
     msg = formatter.format_alert(ev)
     lines = msg.split("\n")
-    # Line 1: $TICKER  emoji — no text type label, no "Tier N —" label.
-    assert lines[0].startswith("$NVDA")
-    assert "🔴" in lines[0]
-    assert " · " not in lines[0]  # event-type text label dropped from line 1
+    # Line 1: just $TICKER — no type label, no emoji, no "Tier N —" label.
+    assert lines[0] == "$NVDA"
+    assert "🔴" not in lines[0]  # category emoji removed from line 1
     assert "Tier 2" not in msg  # users never see the tier label anymore
     # Line 2: bite-size summary on its own line (no cashtag duplication).
     assert lines[1] == "NVIDIA to acquire Run:ai"
