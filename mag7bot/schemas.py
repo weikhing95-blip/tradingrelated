@@ -52,6 +52,7 @@ class EventType(str, Enum):
     INDEX_LISTING = "index_listing"
     EXEC_COMMENTARY = "exec_commentary"  # CEO/CFO interviews, earnings-call remarks
     MACRO = "macro"  # economic data releases (CPI, PCE, jobless claims, ...)
+    TRADING_HALT = "trading_halt"  # exchange trading halt / resumption
     NEWS = "news"  # unclassified / general
 
     @property
@@ -68,6 +69,7 @@ class EventType(str, Enum):
             EventType.INDEX_LISTING: "🔵",
             EventType.EXEC_COMMENTARY: "🎙",
             EventType.MACRO: "📊",
+            EventType.TRADING_HALT: "🛑",
             EventType.NEWS: "📰",
         }[self]
 
@@ -84,6 +86,7 @@ class EventType(str, Enum):
             EventType.INDEX_LISTING: "Index / Listing",
             EventType.EXEC_COMMENTARY: "Exec Commentary",
             EventType.MACRO: "Economic Data",
+            EventType.TRADING_HALT: "Trading Halt",
             EventType.NEWS: "News",
         }[self]
 

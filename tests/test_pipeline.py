@@ -811,3 +811,54 @@ def test_run_cycle_isolates_failing_source_and_alerts(cfg):
     assert health["yahoo_news"]["consecutive_errors"] == 1
     assert health["finnhub"]["consecutive_errors"] == 0
     assert sum("failing" in m for m in alerts) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Track 4: trading halts + analyst ratings sources                              #
+# --------------------------------------------------------------------------- #
+
+_HALTS_RSS = """<?xml version="1.0"?>
+<rss xmlns:ndaq="http://www.nasdaqtrader.com/" version="2.0"><channel>
+<item>
+  <ndaq:IssueSymbol>NVDA</ndaq:IssueSymbol>
+  <ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+  <ndaq:HaltDate>06/29/2026</ndaq:HaltDate>
+  <ndaq:HaltTime>09:31:00</ndaq:HaltTime>
+</item>
+<item>
+  <ndaq:IssueSymbol>ZZZZ</ndaq:IssueSymbol>
+  <ndaq:ReasonCode>T1</ndaq:ReasonCode>
+</item>
+</channel></rss>"""
+
+
+def test_halts_parser_filters_watchlist_and_is_critical():
+    from mag7bot.sources.halts import _parse_halts
+
+    items = _parse_halts(_HALTS_RSS, ["NVDA", "AAPL"])
+    assert len(items) == 1  # ZZZZ is off-watchlist
+    it = items[0]
+    assert it.ticker == "NVDA" and it.source == "halts" and it.tier == Tier.PRIMARY
+    assert "halted" in it.headline.lower()
+    assert classify.classify(it) == EventType.TRADING_HALT
+    assert materiality.score(it, EventType.TRADING_HALT) == Materiality.CRITICAL
+
+
+def test_ratings_parser_changes_only_and_material():
+    from mag7bot.sources.ratings import _parse
+
+    rows = [
+        {"symbol": "NVDA", "company": "Morgan Stanley", "fromGrade": "Equal-Weight",
+         "toGrade": "Overweight", "action": "up", "gradeTime": 1_700_000_000},
+        {"symbol": "NVDA", "company": "Citi", "toGrade": "Buy",
+         "action": "main", "gradeTime": 1_700_000_001},  # reiteration → skipped
+        {"symbol": "NVDA", "company": "BofA", "fromGrade": "Buy",
+         "toGrade": "Neutral", "action": "down", "gradeTime": 1_700_000_002},
+    ]
+    items = _parse("NVDA", rows)
+    assert len(items) == 2  # "main" dropped
+    up = items[0]
+    assert "upgrades NVDA to Overweight" in up.headline
+    assert classify.classify(up) == EventType.ANALYST
+    # A genuine rating change promotes ANALYST from LOW to MATERIAL.
+    assert materiality.score(up, EventType.ANALYST) == Materiality.MATERIAL

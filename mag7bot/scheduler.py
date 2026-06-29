@@ -23,8 +23,10 @@ from .config import (
     FED_RSS_POLL_SECONDS,
     FINNHUB_POLL_SECONDS,
     GOOGLE_NEWS_POLL_SECONDS,
+    HALTS_POLL_SECONDS,
     INSIDER_POLL_SECONDS,
     MACRO_POLL_SECONDS,
+    RATINGS_POLL_SECONDS,
     RESEARCH_AGENT_INTERVAL,
     SGT,
     YAHOO_NEWS_POLL_SECONDS,
@@ -83,6 +85,14 @@ async def poll_insider(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def poll_fed(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "fed")
+
+
+async def poll_halts(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "halts")
+
+
+async def poll_ratings(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "ratings")
 
 
 async def run_research_agent(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -149,6 +159,14 @@ def setup_jobs(application: Application) -> None:
     if "fed" in application.bot_data["sources"]:
         jq.run_repeating(
             poll_fed, interval=FED_RSS_POLL_SECONDS, first=90, name="poll_fed"
+        )
+    if "halts" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_halts, interval=HALTS_POLL_SECONDS, first=100, name="poll_halts"
+        )
+    if "ratings" in application.bot_data["sources"]:
+        jq.run_repeating(
+            poll_ratings, interval=RATINGS_POLL_SECONDS, first=110, name="poll_ratings"
         )
     if cfg.anthropic_api_key and cfg.enable_research_agent:
         jq.run_repeating(
