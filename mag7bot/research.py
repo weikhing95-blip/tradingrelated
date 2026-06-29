@@ -7,7 +7,7 @@ Two modes:
       additional publishers. Owner reviews and approves each one. No changes
       are made automatically.
 
-  run_autonomous(anthropic_api_key, cfg, bot)
+  run_autonomous(anthropic_api_key, cfg)
       Autonomous mode (weekly scheduled job): Claude uses tool-use to fetch and
       test candidate RSS/API endpoints, auto-adds those that pass quality checks,
       and sends a DM report to the owner. Requires ANTHROPIC_API_KEY.
@@ -155,7 +155,7 @@ async def _fetch_url(url: str) -> str:
         return f"ERROR: {exc}"
 
 
-async def run_autonomous(anthropic_api_key: str, cfg, bot=None) -> str:
+async def run_autonomous(anthropic_api_key: str, cfg) -> str:
     """Run one autonomous research cycle.
 
     Fetches and evaluates candidate news sources using Claude tool-use.

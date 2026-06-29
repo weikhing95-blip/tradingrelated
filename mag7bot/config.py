@@ -77,82 +77,20 @@ MACRO_SERIES = [
 ]
 
 # Domain whitelist (PRD §4 hard rule). Anything outside this set is dropped.
-# Keys are publisher names/domains as they appear in source `source`/`publisher`
-# fields, normalised to lowercase. EDGAR and company IR are implicitly Tier 1.
-WHITELIST_DOMAINS: List[str] = [
-    # Tier 1 — primary
-    "sec.gov",
-    "edgar",
-    # Tier 2 — reputable wire
-    "reuters",
-    "reuters.com",
-    "bloomberg",
-    "bloomberg.com",
-    "ap",
-    "apnews.com",
-    "associated press",
-    "cnbc",
-    "cnbc.com",
-    "wsj",
-    "wsj.com",
-    "the wall street journal",
-    "ft",
-    "ft.com",
-    "financial times",
-    # Reputable finance press / aggregators
-    "finance.yahoo.com",
-    "yahoo.com",
-    "yahoo finance",
-    # Tier 3 — aggregated events / analyst feeds
-    "marketwatch",
-    "marketwatch.com",
-    "seekingalpha.com",
-    "businesswire",
-    "businesswire.com",
-    "globenewswire",
-    "globenewswire.com",
-    "prnewswire",
-    "prnewswire.com",
-    # --- Diversified additions (vetted by the source-research agent) ---
-    # Established financial / international press (Tier 2). Both domain and a
-    # name token are listed so items match whether the feed gives a URL host
-    # (Finnhub/Yahoo) or just a publisher name (Google News <source>).
-    "barrons.com",
-    "barron",
-    "investors.com",
-    "investor's business daily",
-    "nikkei.com",
-    "asia.nikkei.com",
-    "nikkei",
-    "economist.com",
-    "the economist",
-    "axios.com",
-    "axios",
-    "bbc.com",
-    "bbc",
-    "theguardian.com",
-    "the guardian",
-    "caixinglobal.com",
-    "caixin",
-    "scmp.com",
-    "south china morning post",
-    # Analyst / data / ratings providers (Tier 3, primary for ratings actions).
-    "morningstar.com",
-    "morningstar",
-    "spglobal.com",
-    "s&p global",
-    "moodys.com",
-    "moody",
-    "fitchratings.com",
-    "fitch ratings",
-    # Primary / regulatory / exchange (Tier 1, low-volume but authoritative).
-    "nyse.com",
-    "federalreserve.gov",
-    "home.treasury.gov",
-    "treasury.gov",
-    # NB: nasdaq.com deliberately excluded — it republishes syndicated
-    # listicle/opinion content under its own domain (would reintroduce noise).
-]
+# Maintained in data/whitelist_domains.txt (one lowercase name/domain per line,
+# '#' comments allowed) rather than inline, so curating it isn't a code change.
+# Runtime additions live in the DB whitelist_extra table.
+def _load_whitelist_domains() -> List[str]:
+    path = Path(__file__).with_name("data") / "whitelist_domains.txt"
+    entries: List[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip().lower()
+        if line:
+            entries.append(line)
+    return entries
+
+
+WHITELIST_DOMAINS: List[str] = _load_whitelist_domains()
 
 
 @dataclass(frozen=True)
@@ -190,6 +128,8 @@ class Config:
     # no usable timestamp is dropped too. Lower = fresher feed. SEC filings are
     # always allowed (inherently current).
     max_item_age_hours: int = MAX_ITEM_AGE_HOURS
+    # Cross-source/cross-ticker dedup lookback window (hours).
+    dedup_window_hours: int = DEDUP_WINDOW_HOURS
 
     # Telegram user client (for channel monitoring)
     telegram_api_id: int = 0          # from my.telegram.org
@@ -276,12 +216,39 @@ def load_config(dry_run: bool = False) -> Config:
     if feed_volume not in ("firehose", "moderate", "low"):
         feed_volume = "moderate"
     quiet_hours_enabled = os.environ.get("QUIET_HOURS", "").strip().lower() in _truthy
-    try:
-        max_item_age_hours = int(os.environ.get("MAX_ITEM_AGE_HOURS", str(MAX_ITEM_AGE_HOURS)))
-    except ValueError:
-        max_item_age_hours = MAX_ITEM_AGE_HOURS
-    if max_item_age_hours < 1:
-        max_item_age_hours = MAX_ITEM_AGE_HOURS
+    def _int_env(name: str, default: int) -> int:
+        try:
+            val = int(os.environ.get(name, str(default)))
+        except ValueError:
+            return default
+        return val if val >= 1 else default
+
+    max_item_age_hours = _int_env("MAX_ITEM_AGE_HOURS", MAX_ITEM_AGE_HOURS)
+    dedup_window_hours = _int_env("DEDUP_WINDOW_HOURS", DEDUP_WINDOW_HOURS)
+
+    # Fields that are identical in both modes — defined once so the dry-run and
+    # live branches can't drift apart. Only the credentials differ (optional in
+    # dry-run, required live).
+    common = dict(
+        fred_api_key=os.environ.get("FRED_API_KEY", "").strip(),
+        digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
+        summary_mode=summary_mode,
+        anthropic_api_key=anthropic_key,
+        summary_model=summary_model,
+        feed_volume=feed_volume,
+        quiet_hours_enabled=quiet_hours_enabled,
+        max_item_age_hours=max_item_age_hours,
+        dedup_window_hours=dedup_window_hours,
+        db_path=db_path,
+        enable_google_news=enable_google_news,
+        enable_yahoo_news=enable_yahoo_news,
+        enable_insider=enable_insider,
+        enable_fed_rss=enable_fed_rss,
+        telegram_api_id=tg_api_id,
+        telegram_api_hash=tg_api_hash,
+        telegram_session_path=tg_session,
+        enable_research_agent=enable_research_agent,
+    )
 
     if dry_run:
         return Config(
@@ -292,24 +259,8 @@ def load_config(dry_run: bool = False) -> Config:
             sec_edgar_user_agent=os.environ.get(
                 "SEC_EDGAR_USER_AGENT", "mag7bot dry-run (example@example.com)"
             ),
-            fred_api_key=os.environ.get("FRED_API_KEY", "").strip(),
-            digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
-            summary_mode=summary_mode,
-            anthropic_api_key=anthropic_key,
-            summary_model=summary_model,
-            feed_volume=feed_volume,
-            quiet_hours_enabled=quiet_hours_enabled,
-            max_item_age_hours=max_item_age_hours,
-            db_path=db_path,
             dry_run=True,
-            enable_google_news=enable_google_news,
-            enable_yahoo_news=enable_yahoo_news,
-            enable_insider=enable_insider,
-            enable_fed_rss=enable_fed_rss,
-            telegram_api_id=tg_api_id,
-            telegram_api_hash=tg_api_hash,
-            telegram_session_path=tg_session,
-            enable_research_agent=enable_research_agent,
+            **common,
         )
 
     return Config(
@@ -318,22 +269,6 @@ def load_config(dry_run: bool = False) -> Config:
         channel_id=_require("CHANNEL_ID"),
         finnhub_api_key=_require("FINNHUB_API_KEY"),
         sec_edgar_user_agent=_require("SEC_EDGAR_USER_AGENT"),
-        fred_api_key=os.environ.get("FRED_API_KEY", "").strip(),
-        digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
-        summary_mode=summary_mode,
-        anthropic_api_key=anthropic_key,
-        summary_model=summary_model,
-        feed_volume=feed_volume,
-        quiet_hours_enabled=quiet_hours_enabled,
-        max_item_age_hours=max_item_age_hours,
-        db_path=db_path,
         dry_run=False,
-        enable_google_news=enable_google_news,
-        enable_yahoo_news=enable_yahoo_news,
-        enable_insider=enable_insider,
-        enable_fed_rss=enable_fed_rss,
-        telegram_api_id=tg_api_id,
-        telegram_api_hash=tg_api_hash,
-        telegram_session_path=tg_session,
-        enable_research_agent=enable_research_agent,
+        **common,
     )
