@@ -103,12 +103,15 @@ def _status_token(event: Event) -> str:
     return ""
 
 
-def format_alert(event: Event) -> str:
+def format_alert(event: Event, price_move: str = "") -> str:
     """Render a single event into the MarketBrief alert format.
 
         {$TICKER · EVENT TYPE}  {emoji}
-        {summary}
+        {summary}  [· {price move}]
         🔗 {publisher} (link)  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
+
+    ``price_move`` (e.g. "shares +2.3%") is appended to the summary line when
+    supplied — see ``quotes.price_move``.
     """
     # ── Line 1: ticker + event type label + emoji ──────────────────────────
     type_label = event.type.display.upper()
@@ -118,8 +121,10 @@ def format_alert(event: Event) -> str:
         cashtag = f"${_esc(event.ticker.upper())}"
         head = f"{cashtag} · {_esc(type_label)}  {event.type.emoji}"
 
-    # ── Line 2: bite-size summary ──────────────────────────────────────────
+    # ── Line 2: bite-size summary (+ optional price reaction) ──────────────
     summary_line = _esc(event.summary)
+    if price_move:
+        summary_line += f"  ·  📈 {_esc(price_move)}"
 
     # ── Line 3: source + status + timestamp (one condensed line) ──────────
     parts: List[str] = []

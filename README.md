@@ -221,10 +221,14 @@ channel, configured privately via a 1:1 DM with the bot. Every alert carries a
 source tier and a canonical link to a primary or reputable source — no social
 media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
 
-> **Goal:** deliver **bite-size, source-verified news** — each alert is a
-> substantive 1–2 sentence summary of *what happened* (not just a headline),
-> tagged with the `$TICKER` and a verified link, so you can skim the feed and
-> trust every item. Summaries are content-forward (see *Summaries* below).
+> **Goal:** a **fast, high-signal, source-verified market feed** for a focused
+> watchlist (Mag 7 + MU/PLTR) plus US macro & the Fed — matching the speed and
+> density of **Walter Bloomberg / SM News** in a consistent house voice.
+> Each alert: `$TICKER` first, a bite-size fact-forward summary (hard numbers
+> when available), the **price reaction** (e.g. "shares +2.3%"), a verified
+> `(link)`, and a timestamp. **24/7**, **firehose** volume, deduped/cross-confirmed,
+> with curated-channel relay (Walter/SM/Kobeissi) re-summarised into the house
+> format. Knobs: `FEED_VOLUME`, `QUIET_HOURS`, `SUMMARY_MODE`.
 
 ```
 SEC EDGAR + Finnhub ─► whitelist ─► classify ─► dedup ─► materiality
@@ -311,11 +315,21 @@ verified source/link line and timestamp. Two modes (`SUMMARY_MODE`):
   carries real content — a 1–3 sentence lede — otherwise falls back to the
   headline. Accurate, zero cost, no hallucination risk.
 - **`llm`** (needs `ANTHROPIC_API_KEY`): Claude compresses the headline + blurb
-  into a neutral 1–2 sentence summary, **gated to instant-push items** so the
-  digest doesn't cost an API call per line. A source-faithfulness guard rejects
+  into a neutral 1–2 sentence summary using a **cheap fast model (Haiku** by
+  default, override with `SUMMARY_MODEL`). A source-faithfulness guard rejects
   any summary that introduces a number absent from the source text, falling back
-  to the verbatim blurb. *(Note: the Anthropic API is pay-as-you-go and separate
-  from a Claude Max subscription — Max cannot fund it.)*
+  to the verbatim blurb. *(The Anthropic API is pay-as-you-go and separate from a
+  Claude Max subscription — Max cannot fund it.)*
+
+**Feed behaviour:**
+- **`FEED_VOLUME`** — `firehose` pushes all on-watchlist items instantly (incl.
+  minor; LLM-summarised); `moderate` pushes material/critical only (minor →
+  digest); `low` pushes critical only.
+- **`QUIET_HOURS`** — default off = **24/7**; set `true` to mute non-critical
+  pushes 00:00–07:00 SGT.
+- **Price reaction** — each company alert appends the day's move (e.g.
+  "📈 shares +2.3%") via a cached Finnhub `/quote` lookup; best-effort, never
+  blocks a push.
 
 ## Optional: Yahoo Finance (breadth source)
 

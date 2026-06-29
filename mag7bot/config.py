@@ -18,7 +18,9 @@ from zoneinfo import ZoneInfo
 # Constants                                                                     #
 # --------------------------------------------------------------------------- #
 
-MODEL = "claude-opus-4-8"  # only used when SUMMARY_MODE=llm
+MODEL = "claude-opus-4-8"  # research agent / structured reasoning
+# Cheap, fast model for high-volume summarisation + classification (SUMMARY_MODE=llm).
+HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
 # Singapore time — all user-facing timestamps and digest scheduling are in SGT.
 SGT = ZoneInfo("Asia/Singapore")
@@ -59,6 +61,7 @@ RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
 DEFAULT_TELEGRAM_CHANNELS = [
     ("@WalterBloomberg", "Walter Bloomberg"),
     ("@smnewsnow", "SM News"),  # verify username in Telegram before relying on this
+    ("@KobeissiLetter", "The Kobeissi Letter"),  # verify username before relying
 ]
 
 # Macro series polled from FRED (PRD: CPI, Core CPI, PCE, Core PCE, PPI, claims).
@@ -170,6 +173,9 @@ class Config:
     digest_time_sgt: str  # "HHMM", e.g. "0900"
     summary_mode: str  # "verbatim" | "llm"
     anthropic_api_key: Optional[str]
+    summary_model: str  # model id for LLM summaries (default Haiku)
+    feed_volume: str  # "firehose" | "moderate" | "low"
+    quiet_hours_enabled: bool  # False = 24/7 (default for the Walter/SM-style feed)
 
     # Storage
     db_path: Path
@@ -260,6 +266,12 @@ def load_config(dry_run: bool = False) -> Config:
     tg_api_hash = os.environ.get("TELEGRAM_API_HASH", "").strip()
     tg_session = os.environ.get("TELEGRAM_SESSION_PATH", "").strip()
 
+    summary_model = os.environ.get("SUMMARY_MODEL", HAIKU_MODEL).strip() or HAIKU_MODEL
+    feed_volume = os.environ.get("FEED_VOLUME", "firehose").strip().lower()
+    if feed_volume not in ("firehose", "moderate", "low"):
+        feed_volume = "moderate"
+    quiet_hours_enabled = os.environ.get("QUIET_HOURS", "").strip().lower() in _truthy
+
     if dry_run:
         return Config(
             telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
@@ -273,6 +285,9 @@ def load_config(dry_run: bool = False) -> Config:
             digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
             summary_mode=summary_mode,
             anthropic_api_key=anthropic_key,
+            summary_model=summary_model,
+            feed_volume=feed_volume,
+            quiet_hours_enabled=quiet_hours_enabled,
             db_path=db_path,
             dry_run=True,
             enable_google_news=enable_google_news,
@@ -295,6 +310,9 @@ def load_config(dry_run: bool = False) -> Config:
         digest_time_sgt=os.environ.get("DIGEST_TIME_SGT", "0900").strip(),
         summary_mode=summary_mode,
         anthropic_api_key=anthropic_key,
+        summary_model=summary_model,
+        feed_volume=feed_volume,
+        quiet_hours_enabled=quiet_hours_enabled,
         db_path=db_path,
         dry_run=False,
         enable_google_news=enable_google_news,
