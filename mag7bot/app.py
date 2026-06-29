@@ -125,10 +125,12 @@ async def _post_init(application) -> None:
 
             from .telegram_monitor import TelegramChannelMonitor
 
+            # Must match the path telegram_setup.py writes (telegram_user.session
+            # next to the DB), so the session created at setup is found here.
             session_path = (
                 Path(cfg.telegram_session_path)
                 if cfg.telegram_session_path
-                else cfg.db_path.with_name("mag7bot_tg.session")
+                else cfg.db_path.with_name("telegram_user.session")
             )
             monitor = TelegramChannelMonitor(
                 api_id=cfg.telegram_api_id,
