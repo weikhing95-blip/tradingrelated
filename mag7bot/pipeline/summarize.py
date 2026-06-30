@@ -134,10 +134,27 @@ def _faithful(summary: str, source_text: str) -> bool:
     return True
 
 
+def _examples_block(examples) -> str:
+    """Render owner-approved summaries as a STYLE guide (not a fact source)."""
+    if not examples:
+        return ""
+    lines = "\n".join(f"- {truncate(e, 200)}" for e in examples[:5] if e)
+    if not lines:
+        return ""
+    return (
+        "House-style examples — match this tone, concreteness and length; "
+        "borrow the STYLE only, never their facts:\n" + lines
+    )
+
+
 def _llm_bite_size(
-    headline: str, body: str, client, model: str = HAIKU_MODEL, subject: str = ""
+    headline: str, body: str, client, model: str = HAIKU_MODEL, subject: str = "",
+    examples=None,
 ) -> Optional[str]:
     parts = []
+    ex = _examples_block(examples)
+    if ex:
+        parts.append(ex)
     if subject:
         parts.append(f"Subject company: {subject}")
     parts.append(f"Headline: {headline}")
@@ -169,6 +186,7 @@ def choose_summary(
     use_llm: bool = False,
     model: str = HAIKU_MODEL,
     subject: str = "",
+    examples=None,
 ) -> str:
     """Return the bite-size summary for an item.
 
@@ -186,7 +204,7 @@ def choose_summary(
     rich = rich_verbatim(headline, body)
     if mode == "llm" and use_llm and client is not None:
         try:
-            llm = _llm_bite_size(headline, body, client, model, subject)
+            llm = _llm_bite_size(headline, body, client, model, subject, examples)
         except Exception:
             llm = None
         if llm:
