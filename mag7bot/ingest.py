@@ -16,7 +16,7 @@ import re
 from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
-from . import article, db
+from . import article, companies, db
 from .config import SGT, Config
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
@@ -170,9 +170,16 @@ def _make_event(cfg: Config, group: List[RawItem], event_type, client) -> Event:
     # LLM compression is gated to push items so the digest doesn't cost an API
     # call per line; in firehose mode we summarise minor items too (all pushed).
     use_llm = mat.is_push or cfg.feed_volume == "firehose"
+    # Anchor the summary on the known company (from the ticker) so the model
+    # names it instead of writing "a major data-analytics company".
+    subject = (
+        companies.name_for(primary.ticker)
+        if primary.ticker.upper() in companies.ALL_COMPANIES
+        else ""
+    )
     summary = summarize.choose_summary(
         primary.headline, primary.body, cfg.summary_mode, client,
-        use_llm=use_llm, model=cfg.summary_model,
+        use_llm=use_llm, model=cfg.summary_model, subject=subject,
     )
     return Event(
         ticker=primary.ticker,
