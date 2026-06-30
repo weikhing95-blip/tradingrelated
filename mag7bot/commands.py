@@ -19,10 +19,10 @@ from typing import Callable, List
 
 from telegram import Update
 from telegram.constants import ChatType
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from . import companies, db, ingest, research
-from .config import SGT, Config
+from .config import FEEDBACK_SUPPRESS_THRESHOLD, SGT, Config
 from .schemas import Event, EventType, Materiality, SentMode, Tier
 
 _DURATION = re.compile(r"^(\d+)\s*([mhd])$", re.IGNORECASE)
@@ -469,6 +469,118 @@ async def cmd_remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+async def on_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle a 👎 tap on a channel alert (non-blocking curation learning).
+
+    Owner-only: a non-owner tap is acknowledged but never recorded. Each distinct
+    alert marked 👎 is logged; once a (ticker, event_type) reaches the threshold a
+    suppression rule is auto-promoted and the owner is told. Nothing blocks
+    posting — this only shapes *future* curation.
+    """
+    query = update.callback_query
+    if query is None:
+        return
+    cfg = _cfg(context)
+    user = query.from_user
+    if user is None or user.id != cfg.owner_user_id:
+        await query.answer("Only the owner can curate this feed.")
+        return
+    data = query.data or ""
+    if not data.startswith("fb:"):
+        await query.answer()
+        return
+    try:
+        event_id = int(data.split(":", 1)[1])
+    except ValueError:
+        await query.answer()
+        return
+    ev = db.get_event(cfg.db_path, event_id)
+    if ev is None:
+        await query.answer("That item is no longer available.")
+        return
+
+    db.record_feedback(
+        cfg.db_path, event_id, ev.ticker, ev.source_name, ev.type.value,
+        "down", time.time(),
+    )
+    count = db.feedback_count(cfg.db_path, ev.ticker, ev.type.value, "down")
+    if count >= FEEDBACK_SUPPRESS_THRESHOLD and db.add_suppression_rule(
+        cfg.db_path, ev.ticker, ev.type.value, count, time.time()
+    ):
+        await query.answer(f"🧠 Learned — muting {ev.type.display} for ${ev.ticker}")
+        try:
+            await context.application.bot.send_message(
+                chat_id=cfg.owner_user_id,
+                text=(
+                    f"🧠 Learned: muting <b>{ev.type.display}</b> for "
+                    f"<b>${ev.ticker}</b> after {count} 👎.\n"
+                    f"Use /rules to review · /unrule &lt;id&gt; to undo."
+                ),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    else:
+        await query.answer(f"👎 noted ({count}/{FEEDBACK_SUPPRESS_THRESHOLD})")
+
+
+@owner_only
+async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List the learned suppression rules (auto-promoted from 👎 feedback)."""
+    cfg = _cfg(context)
+    rules = db.active_suppression_rules(cfg.db_path)
+    if not rules:
+        await update.message.reply_text(
+            "No learned suppression rules yet. Tap 👎 on alerts that are noise; "
+            f"after {FEEDBACK_SUPPRESS_THRESHOLD} on the same ticker+type I'll mute it."
+        )
+        return
+    lines = ["🧠 <b>Learned suppression rules</b>"]
+    for r in rules:
+        try:
+            label = EventType(r["event_type"]).display
+        except ValueError:
+            label = r["event_type"]
+        lines.append(f"  #{r['id']} · ${r['ticker']} · {label}  (from {r['hits']} 👎)")
+    lines.append("\nRemove one with /unrule &lt;id&gt;.")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+@owner_only
+async def cmd_unrule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove a learned suppression rule by id. Usage: /unrule 3"""
+    cfg = _cfg(context)
+    if not context.args or not context.args[0].lstrip("#").isdigit():
+        await update.message.reply_text("Usage: /unrule <id>  (see /rules)")
+        return
+    rule_id = int(context.args[0].lstrip("#"))
+    ok = db.deactivate_suppression_rule(cfg.db_path, rule_id)
+    await update.message.reply_text(
+        f"Removed rule #{rule_id} — that ticker+type can post again."
+        if ok
+        else f"No active rule #{rule_id}."
+    )
+
+
+@owner_only
+async def cmd_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show 👎 feedback tallies per ticker+type (what's trending toward a mute)."""
+    cfg = _cfg(context)
+    rows = db.feedback_summary(cfg.db_path, "down")
+    if not rows:
+        await update.message.reply_text("No 👎 feedback recorded yet.")
+        return
+    lines = ["👎 <b>Feedback tallies</b> (toward a mute at "
+             f"{FEEDBACK_SUPPRESS_THRESHOLD})"]
+    for r in rows[:20]:
+        try:
+            label = EventType(r["event_type"]).display
+        except ValueError:
+            label = r["event_type"]
+        lines.append(f"  ${r['ticker']} · {label}: {r['n']}")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 @owner_only
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Report 24h operational health: events, pushes, last push, source count."""
@@ -541,6 +653,11 @@ def register(application: Application) -> None:
         "channels": cmd_channels,
         "add_channel": cmd_add_channel,
         "remove_channel": cmd_remove_channel,
+        "rules": cmd_rules,
+        "unrule": cmd_unrule,
+        "feedback": cmd_feedback,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))
+    # Curation learning: 👎 taps on channel alerts (callback_data "fb:<id>").
+    application.add_handler(CallbackQueryHandler(on_feedback, pattern=r"^fb:"))

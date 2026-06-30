@@ -28,9 +28,23 @@ class Publisher(Protocol):
 class ChannelPublisher:
     """Posts to the configured Telegram channel."""
 
-    def __init__(self, bot, channel_id: str) -> None:
+    def __init__(self, bot, channel_id: str, feedback_enabled: bool = False) -> None:
         self._bot = bot
         self._channel_id = channel_id
+        self._feedback_enabled = feedback_enabled
+
+    def _markup(self, event: Event):
+        """A single owner-only 👎 button for the curation learning loop. Only the
+        owner's taps are acted on (checked in the callback handler); for everyone
+        else it's a no-op. Omitted when the event isn't persisted or the feature
+        is off."""
+        if not self._feedback_enabled or event.id is None:
+            return None
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        return InlineKeyboardMarkup(
+            [[InlineKeyboardButton("👎 not useful", callback_data=f"fb:{event.id}")]]
+        )
 
     async def push(self, event: Event) -> None:
         await self._bot.send_message(
@@ -38,6 +52,7 @@ class ChannelPublisher:
             text=format_alert(event),
             parse_mode="HTML",
             disable_web_page_preview=True,
+            reply_markup=self._markup(event),
         )
 
     async def send_digest(self, text: str) -> None:

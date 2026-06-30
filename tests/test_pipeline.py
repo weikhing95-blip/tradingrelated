@@ -1424,3 +1424,69 @@ def test_relevance_drops_price_move_filler():
         "Tesla recalls 1.2 million vehicles over software fault",
     ]:
         assert rel.is_low_quality(ok) is False, ok
+
+
+# --------------------------------------------------------------------------- #
+# Non-blocking curation learning (feedback → suppression rules)                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_feedback_count_dedups_same_event(cfg):
+    from mag7bot import db
+
+    now = 1_700_000_000.0
+    # Two 👎 on the SAME event count once (not two votes from one tap-retap).
+    db.record_feedback(cfg.db_path, 50, "AAPL", "Reuters", "news", "down", now)
+    db.record_feedback(cfg.db_path, 50, "AAPL", "Reuters", "news", "down", now + 1)
+    assert db.feedback_count(cfg.db_path, "AAPL", "news", "down") == 1
+
+
+def test_feedback_promotes_and_is_reversible(cfg):
+    from mag7bot import db
+
+    now = 1_700_000_000.0
+    for i in range(3):  # three distinct events → reaches the threshold of 3
+        db.record_feedback(cfg.db_path, 100 + i, "NVDA", "Reuters", "news", "down", now + i)
+    assert db.feedback_count(cfg.db_path, "NVDA", "news", "down") == 3
+
+    assert db.add_suppression_rule(cfg.db_path, "NVDA", "news", 3, now) is True
+    assert db.is_suppressed(cfg.db_path, "NVDA", "news") is True
+    # Re-promoting an already-active rule is a no-op (no duplicate announcement).
+    assert db.add_suppression_rule(cfg.db_path, "NVDA", "news", 3, now) is False
+
+    rules = db.active_suppression_rules(cfg.db_path)
+    assert len(rules) == 1 and rules[0]["ticker"] == "NVDA"
+    # /unrule reverses it.
+    assert db.deactivate_suppression_rule(cfg.db_path, rules[0]["id"]) is True
+    assert db.is_suppressed(cfg.db_path, "NVDA", "news") is False
+
+
+def test_suppression_rule_blocks_build_events(cfg):
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    control = _item("Nvidia featured in today's market session recap",
+                    ticker="NVDA", source="finnhub",
+                    url="https://www.reuters.com/a", ts=now)
+    etype = classify.classify(control)
+    # Control: with no rule, the item posts.
+    assert len(ingest.build_events(cfg, [control], now)) == 1
+
+    # Learn a suppression rule for (NVDA, <that type>); a fresh same-type item drops.
+    db.add_suppression_rule(cfg.db_path, "NVDA", etype.value, 3, now)
+    later = _item("Nvidia appears in another market wrap column",
+                  ticker="NVDA", source="finnhub",
+                  url="https://www.reuters.com/b", ts=now)
+    assert ingest.build_events(cfg, [later], now) == []
+
+
+def test_get_event_roundtrip(cfg):
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    item = _item("NVIDIA to acquire Run:ai in a deal", ticker="NVDA",
+                 source="finnhub", url="https://www.reuters.com/c", ts=now)
+    events = ingest.build_events(cfg, [item], now)
+    assert events and events[0].id is not None
+    fetched = db.get_event(cfg.db_path, events[0].id)
+    assert fetched is not None and fetched.ticker == "NVDA"

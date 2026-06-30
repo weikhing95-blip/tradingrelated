@@ -118,6 +118,29 @@ CREATE TABLE IF NOT EXISTS source_health (
     consecutive_errors  INTEGER NOT NULL DEFAULT 0,
     updated_at          REAL NOT NULL DEFAULT 0
 );
+
+-- Owner feedback on posted alerts (non-blocking learning loop).
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id    INTEGER,
+    ticker      TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT '',
+    event_type  TEXT NOT NULL,
+    verdict     TEXT NOT NULL DEFAULT 'down',
+    created_at  REAL NOT NULL
+);
+
+-- Learned suppression rules, promoted from repeated 'down' feedback. Owner can
+-- list them (/rules) and remove them (/unrule); nothing is suppressed silently.
+CREATE TABLE IF NOT EXISTS suppression_rules (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker      TEXT NOT NULL,
+    event_type  TEXT NOT NULL,
+    hits        INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(ticker, event_type)
+);
 """
 
 
@@ -431,6 +454,105 @@ def update_event_links(
             "UPDATE events SET links = ?, confirmed_count = ? WHERE id = ?",
             (json.dumps(links), confirmed_count, event_id),
         )
+
+
+def get_event(path: Path, event_id: int) -> Optional[Event]:
+    with connect(path) as conn:
+        row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+    return _row_to_event(row) if row else None
+
+
+# --------------------------------------------------------------------------- #
+# feedback + learned suppression rules (non-blocking curation learning)         #
+# --------------------------------------------------------------------------- #
+
+
+def record_feedback(
+    path: Path, event_id: Optional[int], ticker: str, source: str,
+    event_type: str, verdict: str, now: float,
+) -> None:
+    with connect(path) as conn:
+        conn.execute(
+            """INSERT INTO feedback
+                   (event_id, ticker, source, event_type, verdict, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (event_id, ticker.upper(), source, event_type, verdict, now),
+        )
+
+
+def feedback_count(path: Path, ticker: str, event_type: str, verdict: str = "down") -> int:
+    """Distinct events with this verdict for a (ticker, event_type) — so two
+    'down' taps on the *same* alert count once, not twice."""
+    with connect(path) as conn:
+        row = conn.execute(
+            """SELECT COUNT(DISTINCT COALESCE(event_id, -id)) AS n FROM feedback
+               WHERE ticker = ? AND event_type = ? AND verdict = ?""",
+            (ticker.upper(), event_type, verdict),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def add_suppression_rule(
+    path: Path, ticker: str, event_type: str, hits: int, now: float
+) -> bool:
+    """Promote (or re-activate) a learned suppression rule. Returns True if it was
+    newly created or flipped from inactive→active (i.e. a state change worth
+    announcing), False if it was already active."""
+    with connect(path) as conn:
+        existing = conn.execute(
+            "SELECT active FROM suppression_rules WHERE ticker = ? AND event_type = ?",
+            (ticker.upper(), event_type),
+        ).fetchone()
+        if existing is not None and existing["active"]:
+            return False
+        conn.execute(
+            """INSERT INTO suppression_rules (ticker, event_type, hits, created_at, active)
+               VALUES (?, ?, ?, ?, 1)
+               ON CONFLICT(ticker, event_type)
+               DO UPDATE SET active = 1, hits = excluded.hits, created_at = excluded.created_at""",
+            (ticker.upper(), event_type, hits, now),
+        )
+    return True
+
+
+def is_suppressed(path: Path, ticker: str, event_type: str) -> bool:
+    with connect(path) as conn:
+        row = conn.execute(
+            """SELECT 1 FROM suppression_rules
+               WHERE ticker = ? AND event_type = ? AND active = 1""",
+            (ticker.upper(), event_type),
+        ).fetchone()
+    return row is not None
+
+
+def active_suppression_rules(path: Path) -> List[dict]:
+    with connect(path) as conn:
+        rows = conn.execute(
+            """SELECT id, ticker, event_type, hits, created_at FROM suppression_rules
+               WHERE active = 1 ORDER BY created_at DESC"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def deactivate_suppression_rule(path: Path, rule_id: int) -> bool:
+    with connect(path) as conn:
+        cur = conn.execute(
+            "UPDATE suppression_rules SET active = 0 WHERE id = ? AND active = 1",
+            (rule_id,),
+        )
+        return cur.rowcount > 0
+
+
+def feedback_summary(path: Path, verdict: str = "down") -> List[dict]:
+    """Per-(ticker, event_type) feedback tallies, most-flagged first — for /feedback."""
+    with connect(path) as conn:
+        rows = conn.execute(
+            """SELECT ticker, event_type, COUNT(DISTINCT COALESCE(event_id, -id)) AS n
+               FROM feedback WHERE verdict = ?
+               GROUP BY ticker, event_type ORDER BY n DESC""",
+            (verdict,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def pending_digest_events(path: Path, feed_id: int) -> List[Event]:
