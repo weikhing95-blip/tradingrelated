@@ -1035,15 +1035,16 @@ def test_ratings_parser_changes_only_and_material():
 # Price-move detector                                                           #
 # --------------------------------------------------------------------------- #
 
-# ~1%/day baseline series (oldest→newest), 11 closes → 10 prior daily returns.
-_CALM_CLOSES = [100, 101, 100, 102, 101, 103, 102, 104, 103, 105, 104]
+# A daily-close series (oldest→newest); the LAST value is "today".
+# Calm ~1%/day history then a +6% jump today → fires.
+_CALM_HISTORY = [100, 101, 100, 102, 101, 103, 102, 104, 103, 105, 104]
 
 
 def test_pricemove_fires_above_multiple_and_floor():
     from mag7bot.sources import pricemove as pm
 
-    # +6% on a ~1.4% baseline → clears both the 2× bar and the 3% floor.
-    verdict = pm.assess_move(_CALM_CLOSES, 110.4, 104.0, multiplier=2.0, min_pct=3.0, lookback=10)
+    series = _CALM_HISTORY + [104 * 1.062]  # +6.2% today on a ~1.4% baseline
+    verdict = pm.assess_move(series, multiplier=2.0, min_pct=3.0, lookback=10)
     assert verdict is not None
     move, baseline, ratio = verdict
     assert round(move * 100, 1) == 6.2 and ratio > 2.0
@@ -1052,24 +1053,46 @@ def test_pricemove_fires_above_multiple_and_floor():
 def test_pricemove_respects_floor():
     from mag7bot.sources import pricemove as pm
 
-    # +2% is statistically unusual here but below the 3% floor → no alert.
-    assert pm.assess_move(_CALM_CLOSES, 106.08, 104.0, multiplier=2.0, min_pct=3.0, lookback=10) is None
+    series = _CALM_HISTORY + [104 * 1.02]  # +2% today — below the 3% floor
+    assert pm.assess_move(series, multiplier=2.0, min_pct=3.0, lookback=10) is None
 
 
 def test_pricemove_respects_multiplier_independently():
     from mag7bot.sources import pricemove as pm
 
-    # Volatile name: ~5%/day baseline. A 4% move clears the 3% floor but is BELOW
+    # Volatile name (~5%/day baseline); +4% today clears the 3% floor but is below
     # 2× the baseline (~10%), so the multiplier gate (not the floor) rejects it.
     volatile = [100, 105, 100, 105, 100, 105, 100, 105, 100, 105, 100]
-    assert pm.assess_move(volatile, 104.0, 100.0, multiplier=2.0, min_pct=3.0, lookback=10) is None
+    series = volatile + [100 * 1.04]
+    assert pm.assess_move(series, multiplier=2.0, min_pct=3.0, lookback=10) is None
+
+
+def test_pricemove_uses_yesterday_not_month_ago():
+    """Regression: the move must be vs *yesterday's* close, not a month-ago
+    reference. A series that ran up ~29% over the window but only +1.75% on the
+    last day must NOT fire (the old chartPreviousClose fallback reported the whole
+    monthly move as a 'daily' move, flagging every ticker at once)."""
+    from mag7bot.sources import pricemove as pm
+
+    # 90 → 116 over the window (+28.9% total) but 114 → 116 on the last day (+1.75%).
+    series = [90, 92, 94, 96, 98, 100, 104, 108, 110, 113, 114, 116]
+    verdict = pm.assess_move(series, multiplier=2.0, min_pct=3.0, lookback=10)
+    assert verdict is None  # +1.75% day move is below the floor — no false alert
+
+
+def test_pricemove_sanity_cap_rejects_absurd_move():
+    from mag7bot.sources import pricemove as pm
+
+    # A 60% one-day jump (e.g. a split artifact) exceeds the plausibility cap.
+    series = _CALM_HISTORY + [104 * 1.60]
+    assert pm.assess_move(series, multiplier=2.0, min_pct=3.0, lookback=10) is None
 
 
 def test_pricemove_needs_enough_history():
     from mag7bot.sources import pricemove as pm
 
-    assert pm.assess_move([100, 101], 120, 101, multiplier=2.0, min_pct=3.0, lookback=10) is None
-    assert pm.assess_move(_CALM_CLOSES, None, 104.0, multiplier=2.0, min_pct=3.0, lookback=10) is None
+    assert pm.assess_move([100, 120], multiplier=2.0, min_pct=3.0, lookback=10) is None
+    assert pm.assess_move([], multiplier=2.0, min_pct=3.0, lookback=10) is None
 
 
 def test_pricemove_parse_chart_and_classify():
@@ -1078,13 +1101,12 @@ def test_pricemove_parse_chart_and_classify():
 
     payload = {
         "chart": {"result": [{
-            "meta": {"regularMarketPrice": 110.4, "previousClose": 104.0,
-                     "regularMarketTime": 1_700_000_000},
-            "indicators": {"quote": [{"close": _CALM_CLOSES + [110.4]}]},
+            "meta": {"regularMarketPrice": 110.4, "regularMarketTime": 1_700_000_000},
+            "indicators": {"quote": [{"close": _CALM_HISTORY + [110.4]}]},
         }], "error": None}
     }
-    closes, current, prev_close, as_of = pm.parse_chart(payload)
-    assert current == 110.4 and prev_close == 104.0 and len(closes) == 12
+    closes, current, as_of = pm.parse_chart(payload)
+    assert current == 110.4 and len(closes) == 12
 
     item = pm.build_item("NVDA", 0.062, 110.40, as_of)
     assert item.source == "pricemove" and item.ticker == "NVDA"
@@ -1099,8 +1121,8 @@ def test_pricemove_parse_chart_and_classify():
 def test_pricemove_parse_chart_handles_bad_payload():
     from mag7bot.sources import pricemove as pm
 
-    assert pm.parse_chart({}) == ([], None, None, 0.0)
-    assert pm.parse_chart({"chart": {"result": []}}) == ([], None, None, 0.0)
+    assert pm.parse_chart({}) == ([], None, 0.0)
+    assert pm.parse_chart({"chart": {"result": []}}) == ([], None, 0.0)
 
 
 def test_pricemove_event_bypasses_news_filters(cfg):
