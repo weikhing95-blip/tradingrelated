@@ -426,6 +426,21 @@ It's the SENTINEL pattern adapted to never block posting: corrections become
 durable rules (curation, deterministic, no LLM cost) and durable style examples
 (summaries). Fully transparent and reversible.
 
+### The "soul" (house voice that learns)
+
+Beyond the rotating ✏️ examples, the bot keeps a durable **house-voice style
+guide** — its *soul* — persisted on the data volume (`soul.md`) and injected into
+every LLM summary. It's the permanent memory the 5-example window lacks. Two ways
+it improves:
+- **You** edit it — `/soul` to view, `/soul_reset` to restore the default.
+- **The LLM** refines it — a **weekly review** (or `/soul_review` on demand)
+  distils your accumulated 👎/✏️ feedback into an updated guide, auto-applied with
+  the previous version kept as `soul.prev.md` and a DM to you.
+
+Safety: the soul carries **style only**. The hard faithfulness / no-fabrication
+rules live in an immutable system prompt the review can't touch, so a bad soul
+edit can never weaken the guardrails.
+
 ## Yahoo Finance (breadth wire)
 
 Yahoo Finance's per-ticker headline RSS is **on by default** (`ENABLE_YAHOO_NEWS`,
@@ -528,6 +543,8 @@ to confirm health and `/watchlist`, then wait for the first live alert.
 | `/feedback` | 👎 tallies per ticker+type (trending toward a mute) |
 | `/examples` · `/forget <id>` | List / remove ✏️ house-style summary examples |
 | `/cancel` | Abort a pending ✏️ summary edit |
+| `/soul` · `/soul_reset` | View / reset the learned house voice (style guide) |
+| `/soul_review` | Distil recent feedback into the house voice now (LLM) |
 
 ## Layout
 

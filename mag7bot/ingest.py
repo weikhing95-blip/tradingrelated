@@ -16,7 +16,7 @@ import re
 from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
-from . import article, companies, db
+from . import article, companies, db, soul
 from .config import SGT, Config
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
@@ -163,7 +163,9 @@ def _merge_links_into(cfg: Config, existing: Event, links: List[str]) -> None:
     existing.links = merged
 
 
-def _make_event(cfg: Config, group: List[RawItem], event_type, client, examples=None) -> Event:
+def _make_event(
+    cfg: Config, group: List[RawItem], event_type, client, examples=None, style_guide=""
+) -> Event:
     """Stage 4 — build a send-ready Event from a same-story group."""
     primary = group[0]
     mat = materiality.score(primary, event_type)
@@ -180,6 +182,7 @@ def _make_event(cfg: Config, group: List[RawItem], event_type, client, examples=
     summary = summarize.choose_summary(
         primary.headline, primary.body, cfg.summary_mode, client,
         use_llm=use_llm, model=cfg.summary_model, subject=subject, examples=examples,
+        style_guide=style_guide,
     )
     return Event(
         ticker=primary.ticker,
@@ -216,12 +219,11 @@ def build_events(
     groups = dedup.collapse(approved)
     cutoff = now - cfg.dedup_window_hours * 3600
 
-    # House-style few-shot examples from the owner's ✏️ corrections (LLM mode).
-    examples = (
-        db.recent_summary_examples(cfg.db_path)
-        if cfg.summary_mode == "llm" and cfg.enable_feedback_learning
-        else []
-    )
+    # House voice (durable style guide) + recent ✏️ corrections (rotating
+    # few-shot examples), both only relevant in LLM mode.
+    learning_on = cfg.summary_mode == "llm" and cfg.enable_feedback_learning
+    examples = db.recent_summary_examples(cfg.db_path) if learning_on else []
+    style_guide = soul.load(cfg) if learning_on else ""
 
     # Cross-ticker URL dedup: one article often surfaces under several tickers
     # (e.g. a "Micron vs Nvidia" piece returned for both MU and NVDA). Map each
@@ -259,7 +261,7 @@ def build_events(
             _merge_links_into(cfg, existing, links)
             continue
 
-        event = _make_event(cfg, group, type_of[id(primary)], client, examples)
+        event = _make_event(cfg, group, type_of[id(primary)], client, examples, style_guide)
         event.id = db.insert_event(cfg.db_path, cfg.feed_id, event)
         events.append(event)
         # Register this event's URLs so a later group in the same batch carrying

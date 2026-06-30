@@ -1552,3 +1552,79 @@ def test_build_events_threads_examples_into_summary(cfg):
     ingest.build_events(llm_cfg, [item], now, client=_C())
     content = captured["messages"][0]["content"]
     assert "Concrete house-style line." in content
+
+
+# --------------------------------------------------------------------------- #
+# Soul (house-voice style guide) + LLM review                                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_soul_seeds_and_persists(cfg):
+    from mag7bot import soul
+
+    text = soul.load(cfg)
+    assert "House voice" in text                      # seeded with the default
+    assert soul.soul_path(cfg).exists()               # written to the volume
+    assert soul.save(cfg, "# Custom voice\n- be terse") is True
+    assert soul.load(cfg).startswith("# Custom voice")
+    # Previous version is backed up for easy revert.
+    assert (soul.soul_path(cfg).parent / "soul.prev.md").exists()
+    soul.reset(cfg)
+    assert "House voice" in soul.load(cfg)
+
+
+def test_soul_injected_into_summary_prompt():
+    client = _CapturingAnthropic("Nvidia ships a new chip.")
+    summarize.choose_summary(
+        "Nvidia unveils a chip", "Nvidia unveils a chip today.",
+        mode="llm", client=client, use_llm=True,
+        style_guide="- ALWAYS lead with the dollar figure.",
+    )
+    system = client.captured["system"]
+    assert "ALWAYS lead with the dollar figure." in system
+    # The immutable safety rules are still present (style is appended, not replacing).
+    assert "Do NOT" in system or "do NOT" in system
+
+
+def test_soul_propose_update_with_stub(cfg):
+    from mag7bot import soul
+
+    class _C:
+        def __init__(self):
+            parsed = type("P", (), {"soul": "# House voice\n- Lead with the number."})()
+            resp = type("R", (), {"parsed_output": parsed})()
+            self.messages = type("M", (), {"parse": lambda _s, **kw: resp})()
+
+    out = soul.propose_update(
+        _C(), soul.DEFAULT_SOUL,
+        corrections=["Nvidia beat on data-center revenue, up 28%."],
+        muted=["$AAPL analyst"], model="x",
+    )
+    assert out is not None and "Lead with the number" in out
+
+
+def test_build_events_threads_soul_into_summary(cfg):
+    import dataclasses
+    from mag7bot import ingest, soul
+
+    now = 1_700_000_000.0
+    soul.save(cfg, "# House voice\n- DISTINCTIVE-SOUL-MARKER lead with the number.")
+
+    captured = {}
+
+    class _C:
+        def __init__(self):
+            parsed = type("P", (), {"summary": "Nvidia ships a product."})()
+            resp = type("R", (), {"parsed_output": parsed})()
+
+            def _parse(_self, **kw):
+                captured.update(kw)
+                return resp
+
+            self.messages = type("M", (), {"parse": _parse})()
+
+    llm_cfg = dataclasses.replace(cfg, summary_mode="llm")
+    item = _item("Nvidia unveils a product", ticker="NVDA", source="finnhub",
+                 url="https://www.reuters.com/soul", ts=now)
+    ingest.build_events(llm_cfg, [item], now, client=_C())
+    assert "DISTINCTIVE-SOUL-MARKER" in captured["system"]

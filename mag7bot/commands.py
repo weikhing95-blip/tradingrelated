@@ -29,7 +29,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import companies, db, ingest, research
+from . import companies, db, ingest, research, soul
 from .config import FEEDBACK_SUPPRESS_THRESHOLD, SGT, Config
 from .schemas import Event, EventType, Materiality, SentMode, Tier
 
@@ -643,6 +643,61 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 @owner_only
+async def cmd_soul(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the current house voice (the style guide injected into summaries)."""
+    cfg = _cfg(context)
+    text = soul.load(cfg)
+    await update.message.reply_text(
+        "🧠 <b>House voice</b> (editable; learned from your ✏️ feedback)\n\n"
+        f"<pre>{html.escape(text)}</pre>\n"
+        "/soul_review to refresh it from feedback now · /soul_reset to restore default.",
+        parse_mode="HTML",
+    )
+
+
+@owner_only
+async def cmd_soul_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Revert the house voice to the built-in default."""
+    cfg = _cfg(context)
+    soul.reset(cfg)
+    await update.message.reply_text("House voice reset to the default. /soul to view.")
+
+
+@owner_only
+async def cmd_soul_review(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Force an LLM review now: distil recent feedback into the house voice."""
+    cfg = _cfg(context)
+    client = context.application.bot_data.get("client")
+    if client is None or cfg.summary_mode != "llm":
+        await update.message.reply_text(
+            "Soul review needs LLM mode (SUMMARY_MODE=llm + ANTHROPIC_API_KEY)."
+        )
+        return
+    corrections = db.recent_summary_examples(cfg.db_path, limit=20)
+    muted = [
+        f"${r['ticker']} {r['event_type']}"
+        for r in db.active_suppression_rules(cfg.db_path)
+    ]
+    if not corrections and not muted:
+        await update.message.reply_text(
+            "No feedback yet to learn from — tap 👎/✏️ on a few alerts first."
+        )
+        return
+    await update.message.reply_text("Reviewing your feedback…")
+    try:
+        updated = soul.propose_update(
+            client, soul.load(cfg), corrections, muted, cfg.summary_model
+        )
+    except Exception as exc:
+        await update.message.reply_text(f"Review failed: {type(exc).__name__}: {exc}")
+        return
+    if updated and soul.save(cfg, updated):
+        await update.message.reply_text("🧠 House voice updated. /soul to view · /soul_reset to revert.")
+    else:
+        await update.message.reply_text("No change — the house voice already fits your feedback.")
+
+
+@owner_only
 async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """List the learned suppression rules (auto-promoted from 👎 feedback)."""
     cfg = _cfg(context)
@@ -777,6 +832,9 @@ def register(application: Application) -> None:
         "examples": cmd_examples,
         "forget": cmd_forget,
         "cancel": cmd_cancel,
+        "soul": cmd_soul,
+        "soul_reset": cmd_soul_reset,
+        "soul_review": cmd_soul_review,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))

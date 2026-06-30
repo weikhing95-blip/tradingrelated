@@ -147,9 +147,19 @@ def _examples_block(examples) -> str:
     )
 
 
+def _system_prompt(style_guide: str = "") -> str:
+    """Immutable safety/faithfulness rules, plus the editable/learned house voice.
+    The style guide is appended (never replaces the core rules) so a bad soul
+    edit can't weaken the no-fabrication guard."""
+    sg = (style_guide or "").strip()
+    if not sg:
+        return _SYSTEM
+    return _SYSTEM + "\n\nHouse voice (style preferences — never override the rules above):\n" + sg
+
+
 def _llm_bite_size(
     headline: str, body: str, client, model: str = HAIKU_MODEL, subject: str = "",
-    examples=None,
+    examples=None, style_guide: str = "",
 ) -> Optional[str]:
     parts = []
     ex = _examples_block(examples)
@@ -163,7 +173,7 @@ def _llm_bite_size(
     resp = client.messages.parse(
         model=model,
         max_tokens=2000,
-        system=_SYSTEM,
+        system=_system_prompt(style_guide),
         messages=[{"role": "user", "content": content}],
         output_format=_BiteSize,
     )
@@ -187,6 +197,7 @@ def choose_summary(
     model: str = HAIKU_MODEL,
     subject: str = "",
     examples=None,
+    style_guide: str = "",
 ) -> str:
     """Return the bite-size summary for an item.
 
@@ -204,7 +215,7 @@ def choose_summary(
     rich = rich_verbatim(headline, body)
     if mode == "llm" and use_llm and client is not None:
         try:
-            llm = _llm_bite_size(headline, body, client, model, subject, examples)
+            llm = _llm_bite_size(headline, body, client, model, subject, examples, style_guide)
         except Exception:
             llm = None
         if llm:
