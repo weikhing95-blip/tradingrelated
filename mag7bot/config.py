@@ -70,6 +70,10 @@ FEEDBACK_SUPPRESS_THRESHOLD = 3
 # Autonomous research agent: how often to run source discovery (in seconds).
 RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
 
+# Soul review: how often the LLM distils accumulated feedback into the house
+# voice (one cheap call per run; only fires when there's new feedback).
+SOUL_REVIEW_INTERVAL = 7 * 24 * 3600  # weekly
+
 # Default Telegram channels to seed on first start.
 DEFAULT_TELEGRAM_CHANNELS = [
     ("@WalterBloomberg", "Walter Bloomberg"),

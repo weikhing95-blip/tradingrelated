@@ -16,7 +16,7 @@ from datetime import time as dtime
 
 from telegram.ext import Application, ContextTypes
 
-from . import ingest, publisher as publisher_mod, research
+from . import db, ingest, publisher as publisher_mod, research, soul
 from .config import (
     ALPACA_POLL_SECONDS,
     EARNINGS_POLL_SECONDS,
@@ -31,6 +31,7 @@ from .config import (
     RATINGS_POLL_SECONDS,
     RESEARCH_AGENT_INTERVAL,
     SGT,
+    SOUL_REVIEW_INTERVAL,
     YAHOO_NEWS_POLL_SECONDS,
 )
 
@@ -117,6 +118,42 @@ async def run_research_agent(context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.application.bot.send_message(chat_id=cfg.owner_user_id, text=report)
 
 
+async def soul_review_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Weekly: distil accumulated feedback (good rewrites + muted topics) into an
+    updated house voice. One cheap LLM call; only runs when there's new feedback
+    and a client. Auto-applied (previous kept as soul.prev.md), owner notified."""
+    bot_data = context.application.bot_data
+    cfg = bot_data["cfg"]
+    client = bot_data.get("client")
+    if client is None or not cfg.enable_feedback_learning or cfg.summary_mode != "llm":
+        return
+    corrections = db.recent_summary_examples(cfg.db_path, limit=20)
+    muted = [
+        f"${r['ticker']} {r['event_type']}"
+        for r in db.active_suppression_rules(cfg.db_path)
+    ]
+    if not corrections and not muted:
+        return  # nothing learned yet — don't spend a call
+    current = soul.load(cfg)
+    try:
+        updated = soul.propose_update(client, current, corrections, muted, cfg.summary_model)
+    except Exception as exc:  # never let a review error disturb the bot
+        print(f"⚠️  Soul review failed: {type(exc).__name__}: {exc}")
+        return
+    if updated and updated.strip() and updated.strip() != current.strip():
+        if soul.save(cfg, updated):
+            try:
+                await context.application.bot.send_message(
+                    chat_id=cfg.owner_user_id,
+                    text=(
+                        "🧠 Refreshed the house voice from your recent feedback.\n"
+                        "/soul to review · /soul_reset to revert."
+                    ),
+                )
+            except Exception:
+                pass
+
+
 async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_data = context.application.bot_data
     await publisher_mod.run_digest(
@@ -194,6 +231,14 @@ def setup_jobs(application: Application) -> None:
             name="research_agent",
         )
         print("🔬 Research agent ENABLED (weekly autonomous source discovery).")
+    if cfg.anthropic_api_key and cfg.enable_feedback_learning and cfg.summary_mode == "llm":
+        jq.run_repeating(
+            soul_review_job,
+            interval=SOUL_REVIEW_INTERVAL,
+            first=600,  # 10 min after start, then weekly
+            name="soul_review",
+        )
+        print("🧠 Soul review ENABLED (weekly: distil feedback into the house voice).")
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(
         application, hhmm
