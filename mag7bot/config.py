@@ -63,6 +63,10 @@ PRICE_MOVE_LOOKBACK_DAYS = 10
 # Large-insider-trade threshold: trades above this value get an instant push.
 INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
 
+# Non-blocking curation learning: after this many distinct 👎 ("not useful")
+# on the same (ticker, event_type), auto-promote a suppression rule.
+FEEDBACK_SUPPRESS_THRESHOLD = 3
+
 # Autonomous research agent: how often to run source discovery (in seconds).
 RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
 
@@ -139,6 +143,7 @@ class Config:
     enable_article_fetch: bool = True   # fetch full article text for richer LLM summaries (llm mode)
     enable_alpaca: bool = True          # Alpaca (Benzinga) news — active only when keys are set
     enable_price_move: bool = True      # unusual intraday-move alerts (Yahoo chart; free)
+    enable_feedback_learning: bool = True  # 👎 feedback buttons + learned suppression rules
 
     # Price-move detector thresholds (see constants above).
     price_move_multiplier: float = PRICE_MOVE_MULTIPLIER
@@ -229,6 +234,7 @@ def load_config(dry_run: bool = False) -> Config:
     enable_article_fetch = os.environ.get("ENABLE_ARTICLE_FETCH", "true").strip().lower() not in _falsy
     enable_alpaca = os.environ.get("ENABLE_ALPACA", "true").strip().lower() not in _falsy
     enable_price_move = os.environ.get("ENABLE_PRICE_MOVE", "true").strip().lower() not in _falsy
+    enable_feedback_learning = os.environ.get("ENABLE_FEEDBACK_LEARNING", "true").strip().lower() not in _falsy
     enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "false").strip().lower() in _truthy
 
     def _float_env(name: str, default: float) -> float:
@@ -286,6 +292,7 @@ def load_config(dry_run: bool = False) -> Config:
         enable_article_fetch=enable_article_fetch,
         enable_alpaca=enable_alpaca,
         enable_price_move=enable_price_move,
+        enable_feedback_learning=enable_feedback_learning,
         price_move_multiplier=price_move_multiplier,
         price_move_min_pct=price_move_min_pct,
         telegram_api_id=tg_api_id,

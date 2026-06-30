@@ -407,6 +407,20 @@ verified link + timestamp. Two modes (`SUMMARY_MODE`):
   sends the owner a one-time DM; a broken source is isolated so it never aborts
   the polling cycle.
 
+## Curation learning (non-blocking feedback)
+
+The feed never waits for approval — posts go out instantly. To curate it, every
+alert carries one **owner-only 👎 "not useful"** button (`ENABLE_FEEDBACK_LEARNING`,
+on by default). Tapping it records feedback privately (subscribers' taps are
+ignored). When the same **(ticker, event type)** is flagged **3×**, the bot
+**auto-promotes a suppression rule** — future matches are dropped *before*
+summarising (so they cost nothing) — and DMs you what it learned. It's the
+SENTINEL pattern: corrections become durable, deterministic rules, no LLM cost.
+Fully transparent and reversible:
+- **`/rules`** — list the learned suppression rules.
+- **`/unrule <id>`** — remove one (that ticker+type can post again).
+- **`/feedback`** — 👎 tallies per ticker+type (what's trending toward a mute).
+
 ## Yahoo Finance (breadth wire)
 
 Yahoo Finance's per-ticker headline RSS is **on by default** (`ENABLE_YAHOO_NEWS`,
@@ -505,6 +519,8 @@ to confirm health and `/watchlist`, then wait for the first live alert.
 | `/diag` | Live-probe each news source and report how many items it returns |
 | `/suggest_sources` | Agent proposes reputable publishers to add (needs `ANTHROPIC_API_KEY`) |
 | `/add_source <domain> [name] [tier]` · `/remove_source <domain>` | Approve / remove a whitelist publisher |
+| `/rules` · `/unrule <id>` | List / remove learned 👎 suppression rules |
+| `/feedback` | 👎 tallies per ticker+type (trending toward a mute) |
 
 ## Layout
 

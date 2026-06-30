@@ -230,6 +230,13 @@ def build_events(
     events: List[Event] = []
     for group in groups:
         primary = group[0]
+        # Learned curation: skip a (ticker, event_type) the owner has muted via
+        # repeated 👎 feedback — dropped before summarising, so it costs nothing.
+        etype = type_of[id(primary)]
+        if cfg.enable_feedback_learning and db.is_suppressed(
+            cfg.db_path, primary.ticker, etype.value
+        ):
+            continue
         links = _dedup_links([i.url for i in group])
 
         # Same article already alerted under any ticker → merge, don't repost.

@@ -280,7 +280,7 @@ def run_live(cfg: Config) -> None:
     application.bot_data["cfg"] = cfg
     application.bot_data["client"] = _make_client(cfg)
     application.bot_data["publisher"] = publisher_mod.ChannelPublisher(
-        application.bot, cfg.channel_id
+        application.bot, cfg.channel_id, feedback_enabled=cfg.enable_feedback_learning
     )
     # Live whitelist = config defaults + owner-approved additions (DB).
     whitelist_provider = lambda: ingest.effective_whitelist(cfg)  # noqa: E731
@@ -331,7 +331,8 @@ def run_live(cfg: Config) -> None:
     scheduler.setup_jobs(application)
 
     print("Mag 7 News Bot is live. Control via the owner DM; alerts to the channel.")
-    application.run_polling(allowed_updates=["message"])
+    # "callback_query" is needed for the 👎 curation-feedback buttons on alerts.
+    application.run_polling(allowed_updates=["message", "callback_query"])
 
 
 def main() -> None:
