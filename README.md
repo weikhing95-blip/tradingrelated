@@ -413,6 +413,23 @@ verified link + timestamp. Two modes (`SUMMARY_MODE`):
 - **`QUIET_HOURS`** — default off = **24/7**; set `true` to mute non-critical
   pushes 00:00–07:00 SGT.
 
+## Going public
+
+The bot scales to any audience for free — a channel broadcasts one copy whether
+it has 5 or 50,000 subscribers, and LLM cost is **per-event, not per-subscriber**.
+Before sharing the channel publicly:
+
+1. **`PUBLIC_CHANNEL=true`** — keeps the owner-only 👎/✏️ curation buttons **off**
+   the public posts (so subscribers never see controls they can't use) and instead
+   DMs the owner a mirror of each alert *with* the buttons. Curate privately; the
+   channel stays clean.
+2. **`/post_disclaimer`** — posts and pins a "not financial advice" disclaimer
+   (the daily digest + calendar also carry a one-line footer). Needs the bot to
+   have "Pin Messages" admin rights.
+3. Keep any linked **discussion group** off or moderated, and keep posting
+   house-style **summaries** (not verbatim source text) to stay clear of data
+   providers' redistribution terms.
+
 ## Observability & health
 
 - **`/status`** — 24h event counts, last push, relay-monitor liveness, and
@@ -562,6 +579,7 @@ to confirm health and `/watchlist`, then wait for the first live alert.
 | `/soul` · `/soul_reset` | View / reset the learned house voice (style guide) |
 | `/soul_review` | Distil recent feedback into the house voice now (LLM) |
 | `/calendar` | Today's high-impact macro calendar (forward preview) |
+| `/post_disclaimer` | Post + pin the "not financial advice" disclaimer (before going public) |
 
 ## Layout
 

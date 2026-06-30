@@ -213,4 +213,5 @@ def format_digest(
     blocks.append("")
     blocks.append("─────────────────")
     blocks.append(f"MarketBrief · {len(events)} updates today")
+    blocks.append("ℹ️ Informational only — not financial advice.")
     return "\n".join(blocks)

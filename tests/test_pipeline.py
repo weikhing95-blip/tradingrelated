@@ -1808,3 +1808,55 @@ def test_build_events_semantic_dedup_collapses_paraphrase(cfg):
     # Only one event exists for AAPL, with both links merged.
     recent = db.recent_events(llm_cfg.db_path, llm_cfg.feed_id, "AAPL", now - 3600)
     assert len(recent) == 1 and len(recent[0].links) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Public-channel prep: curation buttons → owner DM; clean public posts          #
+# --------------------------------------------------------------------------- #
+
+
+class _FakeBot:
+    def __init__(self):
+        self.calls = []
+
+    async def send_message(self, **kw):
+        self.calls.append(kw)
+        return type("M", (), {"message_id": 123})()
+
+
+def _push_event():
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+    return Event(id=5, ticker="NVDA", type=EventType.NEWS, summary="Nvidia ships a chip.",
+                 tier=Tier.WIRE, materiality=Materiality.MATERIAL, ts=1_700_000_000.0,
+                 links=["https://www.reuters.com/x"])
+
+
+def test_publisher_private_keeps_buttons_on_channel():
+    import asyncio
+    from mag7bot import publisher as pub
+
+    bot = _FakeBot()
+    p = pub.ChannelPublisher(bot, "@chan", feedback_enabled=True, owner_id=99, public=False)
+    asyncio.run(p.push(_push_event()))
+    assert len(bot.calls) == 1                       # channel only, no DM mirror
+    assert bot.calls[0]["chat_id"] == "@chan"
+    assert bot.calls[0]["reply_markup"] is not None  # buttons on the channel post
+
+
+def test_publisher_public_moves_buttons_to_owner_dm():
+    import asyncio
+    from mag7bot import publisher as pub
+
+    bot = _FakeBot()
+    p = pub.ChannelPublisher(bot, "@chan", feedback_enabled=True, owner_id=99, public=True)
+    asyncio.run(p.push(_push_event()))
+    assert len(bot.calls) == 2
+    channel, dm = bot.calls[0], bot.calls[1]
+    assert channel["chat_id"] == "@chan" and channel["reply_markup"] is None  # clean public post
+    assert dm["chat_id"] == 99 and dm["reply_markup"] is not None             # buttons in owner DM
+    assert dm["text"].startswith("🛠 Curate")
+
+
+def test_digest_carries_disclaimer_footer():
+    out = formatter.format_digest([], ["NVDA"], 1_700_000_000.0)
+    assert "not financial advice" in out

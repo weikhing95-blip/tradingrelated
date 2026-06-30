@@ -26,18 +26,26 @@ class Publisher(Protocol):
 
 
 class ChannelPublisher:
-    """Posts to the configured Telegram channel."""
+    """Posts to the configured Telegram channel.
 
-    def __init__(self, bot, channel_id: str, feedback_enabled: bool = False) -> None:
+    Curation buttons (👎/✏️) are owner-only. On a **private** channel they ride on
+    the channel post itself. On a **public** channel (``public_channel=True``) the
+    channel post is kept clean and a mirror of the alert — *with* the buttons — is
+    DM'd to the owner, so public subscribers never see (or tap) controls meant for
+    the owner."""
+
+    def __init__(
+        self, bot, channel_id: str, feedback_enabled: bool = False,
+        owner_id: int = 0, public: bool = False,
+    ) -> None:
         self._bot = bot
         self._channel_id = channel_id
         self._feedback_enabled = feedback_enabled
+        self._owner_id = owner_id
+        self._public = public
 
-    def _markup(self, event: Event):
-        """A single owner-only 👎 button for the curation learning loop. Only the
-        owner's taps are acted on (checked in the callback handler); for everyone
-        else it's a no-op. Omitted when the event isn't persisted or the feature
-        is off."""
+    def _buttons(self, event: Event):
+        """Owner-only 👎/✏️ curation buttons; None when off or event unpersisted."""
         if not self._feedback_enabled or event.id is None:
             return None
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -50,13 +58,27 @@ class ChannelPublisher:
         )
 
     async def push(self, event: Event) -> None:
+        buttons = self._buttons(event)
+        # Public channel → clean post (no buttons); private → buttons on the post.
         await self._bot.send_message(
             chat_id=self._channel_id,
             text=format_alert(event),
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=self._markup(event),
+            reply_markup=None if self._public else buttons,
         )
+        # Public: mirror the alert to the owner's DM so they can still curate.
+        if self._public and buttons is not None and self._owner_id:
+            try:
+                await self._bot.send_message(
+                    chat_id=self._owner_id,
+                    text="🛠 Curate:\n" + format_alert(event),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                    reply_markup=buttons,
+                )
+            except Exception:
+                pass  # best-effort; never fail the channel post over the mirror
 
     async def send_digest(self, text: str) -> None:
         await self._bot.send_message(
