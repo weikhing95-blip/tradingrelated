@@ -29,58 +29,58 @@ from .base import SeenFn, Source
 
 CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 
-
-def _abs_daily_returns(closes: List[float]) -> List[float]:
-    """Absolute day-over-day returns from a series of daily closes (oldest→newest).
-    Pairs with a missing/zero close are skipped."""
-    out: List[float] = []
-    for prev, cur in zip(closes, closes[1:]):
-        if prev and cur and prev > 0:
-            out.append(abs(cur / prev - 1.0))
-    return out
+# Sanity ceiling: a real *daily* move for these large caps is never this large.
+# Anything above is a data artifact (stock split, bad/misaligned field) — skip,
+# don't alert. (This is a backstop; the move is computed from the close series.)
+MAX_PLAUSIBLE_MOVE = 0.50  # 50%
 
 
 def assess_move(
-    prior_closes: List[float],
-    current: Optional[float],
-    prev_close: Optional[float],
+    closes: List[float],
     *,
     multiplier: float,
     min_pct: float,
     lookback: int,
 ) -> Optional[Tuple[float, float, float]]:
-    """Decide whether today's move is an alert-worthy anomaly. Pure.
+    """Decide whether the latest day's move is an alert-worthy anomaly. Pure.
 
-    ``prior_closes`` are completed daily closes (oldest→newest) NOT including
-    today; ``current`` is the latest price; ``prev_close`` is yesterday's close.
-    Returns ``(move_fraction, baseline_fraction, ratio)`` when the move clears
-    both the ``multiplier``×baseline bar and the ``min_pct`` floor, else None.
+    Works entirely from the daily-close series (oldest→newest) so the reference
+    is always *yesterday's* close, never a month-ago value: the move is the most
+    recent day-over-day return, and the baseline is the average absolute return
+    of the prior ``lookback`` sessions. Returns ``(move, baseline, ratio)`` when
+    the move clears both the ``multiplier``×baseline bar and the ``min_pct``
+    floor (and is plausibly a daily move), else None.
     """
-    if not current or not prev_close or prev_close <= 0:
+    series = [c for c in closes if isinstance(c, (int, float)) and c > 0]
+    if len(series) < 4:  # need today + a few prior sessions for a baseline
         return None
-    returns = _abs_daily_returns(prior_closes)[-lookback:]
-    if len(returns) < 3:  # not enough history to form a baseline
+    returns = [series[i] / series[i - 1] - 1.0 for i in range(1, len(series))]
+    move = returns[-1]                       # most recent day-over-day move
+    prior = [abs(r) for r in returns[:-1]][-lookback:]
+    if len(prior) < 3:
         return None
-    baseline = sum(returns) / len(returns)
+    baseline = sum(prior) / len(prior)
     if baseline <= 0:
         return None
-    move = current / prev_close - 1.0
+    if abs(move) > MAX_PLAUSIBLE_MOVE:        # split / bad data → not a real day move
+        return None
     ratio = abs(move) / baseline
     if abs(move) * 100.0 >= min_pct and ratio >= multiplier:
         return move, baseline, ratio
     return None
 
 
-def parse_chart(data: dict) -> Tuple[List[float], Optional[float], Optional[float], float]:
-    """Extract (closes, current_price, prev_close, as_of_epoch) from a Yahoo chart
-    JSON payload. Pure; returns ([], None, None, 0.0) on any shape mismatch."""
+def parse_chart(data: dict) -> Tuple[List[float], Optional[float], float]:
+    """Extract (closes, current_price, as_of_epoch) from a Yahoo chart JSON
+    payload. Pure; returns ([], None, 0.0) on any shape mismatch. The move is
+    derived from ``closes`` (see ``assess_move``); ``current`` is used only as the
+    displayed last price."""
     try:
         result = data["chart"]["result"][0]
     except (KeyError, IndexError, TypeError):
-        return [], None, None, 0.0
+        return [], None, 0.0
     meta = result.get("meta") or {}
     current = meta.get("regularMarketPrice")
-    prev_close = meta.get("previousClose") or meta.get("chartPreviousClose")
     as_of = float(meta.get("regularMarketTime") or 0.0)
     closes: List[float] = []
     try:
@@ -88,7 +88,7 @@ def parse_chart(data: dict) -> Tuple[List[float], Optional[float], Optional[floa
         closes = [c for c in raw if isinstance(c, (int, float))]
     except (KeyError, IndexError, TypeError):
         closes = []
-    return closes, current, prev_close, as_of
+    return closes, current, as_of
 
 
 def _trade_date(as_of_epoch: float) -> str:
@@ -155,14 +155,11 @@ class PriceMoveSource(Source):
                         CHART_URL.format(symbol=ticker.upper()), params=self._params
                     )
                     resp.raise_for_status()
-                    closes, current, prev_close, as_of = parse_chart(resp.json())
+                    closes, current, as_of = parse_chart(resp.json())
                 except (httpx.HTTPError, ValueError):
                     continue  # best-effort per ticker; a failure never aborts the rest
-                # The last close in the series is today's (partial) candle — exclude
-                # it so the baseline is built from completed prior sessions only.
-                prior = closes[:-1] if closes else []
                 verdict = assess_move(
-                    prior, current, prev_close,
+                    closes,
                     multiplier=self._multiplier,
                     min_pct=self._min_pct,
                     lookback=self._lookback,
@@ -170,7 +167,9 @@ class PriceMoveSource(Source):
                 if verdict is None:
                     continue
                 move, _baseline, _ratio = verdict
-                item = build_item(ticker, move, current, as_of)
+                # Display the freshest price; fall back to the latest close.
+                last = current if current else (closes[-1] if closes else 0.0)
+                item = build_item(ticker, move, last, as_of)
                 if not is_seen(self.name, item.source_item_id):
                     out.append(item)
         return out
