@@ -240,12 +240,16 @@ def build_events(
     # (e.g. a "Micron vs Nvidia" piece returned for both MU and NVDA). Map each
     # recently-alerted URL to its event so we post the story once, not once per
     # company. Seeded from the window, kept fresh as we insert below.
+    window_events = db.recent_events_window(cfg.db_path, cfg.feed_id, cutoff)
     url_to_event: Dict[str, Event] = {}
-    for ev in db.recent_events_window(cfg.db_path, cfg.feed_id, cutoff):
+    for ev in window_events:
         for u in ev.links:
             c = _canon_url(u)
             if c:
                 url_to_event.setdefault(c, ev)
+
+    def _event_tickers(ev: Event) -> set:
+        return {(ev.ticker or "").upper(), *(t.upper() for t in (ev.tickers or []))}
 
     events: List[Event] = []
     for group in groups:
@@ -272,13 +276,32 @@ def build_events(
             _merge_links_into(cfg, existing, links)
             continue
 
+        # Semantic fallback: a paraphrased re-report from a different outlet (no
+        # shared words or URL) that the lexical checks miss. Only consult the LLM
+        # when there's a same-company recent event to compare against, so it
+        # rarely fires. (LLM mode only.)
+        if cfg.enable_semantic_dedup and client is not None:
+            item_tickers = {primary.ticker.upper()} | {
+                t.upper() for t in companies.tickers_in(primary.headline, watchlist)
+            }
+            cands = [
+                ev for ev in window_events
+                if ev.id is not None and _event_tickers(ev) & item_tickers
+            ]
+            sem_dup = dedup.semantic_find(client, primary.headline, cands, cfg.summary_model)
+            if sem_dup and sem_dup.id is not None:
+                _merge_links_into(cfg, sem_dup, links)
+                continue
+
         event = _make_event(
             cfg, group, type_of[id(primary)], client, examples, style_guide, watchlist
         )
         event.id = db.insert_event(cfg.db_path, cfg.feed_id, event)
         events.append(event)
-        # Register this event's URLs so a later group in the same batch carrying
-        # the same article (under another ticker) collapses into it.
+        # Make this event a candidate for later groups in the same batch — both
+        # by URL (same article under another ticker) and for the semantic check
+        # (a differently-worded re-report arriving in the same cycle).
+        window_events.append(event)
         for u in event.links:
             c = _canon_url(u)
             if c:

@@ -258,6 +258,12 @@ EDGAR · Finnhub · Alpaca/Benzinga · earnings · macro · Fed · halts · rati
   publisher match) drops anything outside the approved set. The same story
   across sources — **and across tickers, by canonical URL** — collapses to one
   `✅ cross-confirmed (N)` alert (6h window).
+- **Dedup (lexical + semantic):** near-identical headlines and shared URLs
+  collapse deterministically (free). A **semantic check** (cheap Haiku call,
+  `ENABLE_SEMANTIC_DEDUP`, llm mode) then catches the same story **re-worded by a
+  different outlet** — no shared words or URL — that lexical dedup misses. It only
+  runs when a recent same-company alert exists to compare against, so it rarely
+  fires; a match merges the link instead of reposting.
 - **Noise filters:** opinion/listicle headlines, auto-generated price-move filler
   ("X Moves -5.7%", "Stock Up 3%"), off-topic relay posts, and aggregator/consent
   boilerplate are all dropped — only new information reaches the channel.
