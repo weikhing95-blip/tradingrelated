@@ -12,6 +12,7 @@ callback (set by the scheduler) lives in ``bot_data['reschedule_digest']``.
 from __future__ import annotations
 
 import functools
+import html
 import re
 import time
 from datetime import datetime
@@ -19,7 +20,14 @@ from typing import Callable, List
 
 from telegram import Update
 from telegram.constants import ChatType
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from . import companies, db, ingest, research
 from .config import FEEDBACK_SUPPRESS_THRESHOLD, SGT, Config
@@ -524,6 +532,116 @@ async def on_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await query.answer(f"👎 noted ({count}/{FEEDBACK_SUPPRESS_THRESHOLD})")
 
 
+async def on_fix_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle an ✏️ tap: ask the owner (in DM) to reply with a better summary.
+
+    Owner-only. Sets a pending-correction marker; the owner's next plain DM
+    message is captured by ``on_owner_text`` as the house-style example."""
+    query = update.callback_query
+    if query is None:
+        return
+    cfg = _cfg(context)
+    user = query.from_user
+    if user is None or user.id != cfg.owner_user_id:
+        await query.answer("Only the owner can curate this feed.")
+        return
+    data = query.data or ""
+    if not data.startswith("fx:"):
+        await query.answer()
+        return
+    try:
+        event_id = int(data.split(":", 1)[1])
+    except ValueError:
+        await query.answer()
+        return
+    ev = db.get_event(cfg.db_path, event_id)
+    if ev is None:
+        await query.answer("That item is no longer available.")
+        return
+    context.application.bot_data["pending_fix"] = event_id
+    await query.answer("Reply in our DM with the better summary ✏️")
+    try:
+        await context.application.bot.send_message(
+            chat_id=cfg.owner_user_id,
+            text=(
+                f"✏️ Reply here with a better summary for this ${ev.ticker} alert "
+                f"and I'll learn the style (or /cancel):\n\n{ev.summary}"
+            ),
+        )
+    except Exception:
+        pass
+
+
+async def on_owner_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Capture the owner's reply to an ✏️ request as a house-style example.
+    No-op unless a correction is pending (so normal DM chatter is ignored)."""
+    cfg = _cfg(context)
+    chat = update.effective_chat
+    user = update.effective_user
+    if chat is None or chat.type != ChatType.PRIVATE:
+        return
+    if user is None or user.id != cfg.owner_user_id:
+        return
+    pending = context.application.bot_data.get("pending_fix")
+    if not pending or update.message is None:
+        return
+    text = (update.message.text or "").strip()
+    if not text:
+        return
+    context.application.bot_data["pending_fix"] = None
+    ev = db.get_event(cfg.db_path, pending)
+    db.add_summary_example(
+        cfg.db_path,
+        ev.ticker if ev else "",
+        ev.type.value if ev else "",
+        ev.summary if ev else "",
+        text,
+        time.time(),
+    )
+    await update.message.reply_text(
+        "✅ Learned — future summaries will follow this style. /examples to review."
+    )
+
+
+@owner_only
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear a pending ✏️ summary edit."""
+    context.application.bot_data["pending_fix"] = None
+    await update.message.reply_text("Cancelled — no pending summary edit.")
+
+
+@owner_only
+async def cmd_examples(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List the house-style summary examples taught via ✏️."""
+    cfg = _cfg(context)
+    rows = db.list_summary_examples(cfg.db_path)
+    if not rows:
+        await update.message.reply_text(
+            "No summary examples yet. Tap ✏️ on an alert to teach the house style."
+        )
+        return
+    lines = ["✏️ <b>Summary style examples</b>"]
+    for r in rows[:20]:
+        tk = f"${r['ticker']}" if r["ticker"] else "—"
+        lines.append(f"  #{r['id']} · {tk}: {html.escape(r['good_summary'][:160])}")
+    lines.append("\nRemove one with /forget &lt;id&gt;.")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+@owner_only
+async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove a summary style example by id. Usage: /forget 3"""
+    cfg = _cfg(context)
+    if not context.args or not context.args[0].lstrip("#").isdigit():
+        await update.message.reply_text("Usage: /forget <id>  (see /examples)")
+        return
+    example_id = int(context.args[0].lstrip("#"))
+    ok = db.deactivate_summary_example(cfg.db_path, example_id)
+    await update.message.reply_text(
+        f"Forgot example #{example_id}." if ok else f"No active example #{example_id}."
+    )
+
+
 @owner_only
 async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """List the learned suppression rules (auto-promoted from 👎 feedback)."""
@@ -656,8 +774,16 @@ def register(application: Application) -> None:
         "rules": cmd_rules,
         "unrule": cmd_unrule,
         "feedback": cmd_feedback,
+        "examples": cmd_examples,
+        "forget": cmd_forget,
+        "cancel": cmd_cancel,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))
-    # Curation learning: 👎 taps on channel alerts (callback_data "fb:<id>").
+    # Curation learning: 👎 / ✏️ taps on channel alerts (callback_data fb:/fx:).
     application.add_handler(CallbackQueryHandler(on_feedback, pattern=r"^fb:"))
+    application.add_handler(CallbackQueryHandler(on_fix_request, pattern=r"^fx:"))
+    # Capture the owner's ✏️ reply (plain DM text, only while a fix is pending).
+    application.add_handler(
+        MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, on_owner_text)
+    )

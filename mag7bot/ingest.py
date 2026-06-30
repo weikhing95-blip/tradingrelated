@@ -163,7 +163,7 @@ def _merge_links_into(cfg: Config, existing: Event, links: List[str]) -> None:
     existing.links = merged
 
 
-def _make_event(cfg: Config, group: List[RawItem], event_type, client) -> Event:
+def _make_event(cfg: Config, group: List[RawItem], event_type, client, examples=None) -> Event:
     """Stage 4 — build a send-ready Event from a same-story group."""
     primary = group[0]
     mat = materiality.score(primary, event_type)
@@ -179,7 +179,7 @@ def _make_event(cfg: Config, group: List[RawItem], event_type, client) -> Event:
     )
     summary = summarize.choose_summary(
         primary.headline, primary.body, cfg.summary_mode, client,
-        use_llm=use_llm, model=cfg.summary_model, subject=subject,
+        use_llm=use_llm, model=cfg.summary_model, subject=subject, examples=examples,
     )
     return Event(
         ticker=primary.ticker,
@@ -215,6 +215,13 @@ def build_events(
     approved, type_of = _classify_and_enable(cfg, approved)
     groups = dedup.collapse(approved)
     cutoff = now - cfg.dedup_window_hours * 3600
+
+    # House-style few-shot examples from the owner's ✏️ corrections (LLM mode).
+    examples = (
+        db.recent_summary_examples(cfg.db_path)
+        if cfg.summary_mode == "llm" and cfg.enable_feedback_learning
+        else []
+    )
 
     # Cross-ticker URL dedup: one article often surfaces under several tickers
     # (e.g. a "Micron vs Nvidia" piece returned for both MU and NVDA). Map each
@@ -252,7 +259,7 @@ def build_events(
             _merge_links_into(cfg, existing, links)
             continue
 
-        event = _make_event(cfg, group, type_of[id(primary)], client)
+        event = _make_event(cfg, group, type_of[id(primary)], client, examples)
         event.id = db.insert_event(cfg.db_path, cfg.feed_id, event)
         events.append(event)
         # Register this event's URLs so a later group in the same batch carrying

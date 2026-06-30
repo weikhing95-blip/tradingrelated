@@ -141,6 +141,18 @@ CREATE TABLE IF NOT EXISTS suppression_rules (
     active      INTEGER NOT NULL DEFAULT 1,
     UNIQUE(ticker, event_type)
 );
+
+-- Owner-supplied "this is how it should read" summaries (✏️ corrections), fed
+-- back to the LLM summarizer as house-style few-shot examples.
+CREATE TABLE IF NOT EXISTS summary_examples (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker       TEXT NOT NULL DEFAULT '',
+    event_type   TEXT NOT NULL DEFAULT '',
+    old_summary  TEXT NOT NULL DEFAULT '',
+    good_summary TEXT NOT NULL,
+    created_at   REAL NOT NULL,
+    active       INTEGER NOT NULL DEFAULT 1
+);
 """
 
 
@@ -539,6 +551,49 @@ def deactivate_suppression_rule(path: Path, rule_id: int) -> bool:
         cur = conn.execute(
             "UPDATE suppression_rules SET active = 0 WHERE id = ? AND active = 1",
             (rule_id,),
+        )
+        return cur.rowcount > 0
+
+
+def add_summary_example(
+    path: Path, ticker: str, event_type: str, old_summary: str,
+    good_summary: str, now: float,
+) -> int:
+    with connect(path) as conn:
+        cur = conn.execute(
+            """INSERT INTO summary_examples
+                   (ticker, event_type, old_summary, good_summary, created_at, active)
+               VALUES (?, ?, ?, ?, ?, 1)""",
+            (ticker.upper(), event_type, old_summary, good_summary, now),
+        )
+        return int(cur.lastrowid)
+
+
+def recent_summary_examples(path: Path, limit: int = 5) -> List[str]:
+    """The most recent owner-approved summaries — house-style few-shot examples."""
+    with connect(path) as conn:
+        rows = conn.execute(
+            """SELECT good_summary FROM summary_examples
+               WHERE active = 1 ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [r["good_summary"] for r in rows]
+
+
+def list_summary_examples(path: Path) -> List[dict]:
+    with connect(path) as conn:
+        rows = conn.execute(
+            """SELECT id, ticker, event_type, good_summary, created_at
+               FROM summary_examples WHERE active = 1 ORDER BY created_at DESC"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def deactivate_summary_example(path: Path, example_id: int) -> bool:
+    with connect(path) as conn:
+        cur = conn.execute(
+            "UPDATE summary_examples SET active = 0 WHERE id = ? AND active = 1",
+            (example_id,),
         )
         return cur.rowcount > 0
 

@@ -43,7 +43,10 @@ class ChannelPublisher:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         return InlineKeyboardMarkup(
-            [[InlineKeyboardButton("👎 not useful", callback_data=f"fb:{event.id}")]]
+            [[
+                InlineKeyboardButton("👎 not useful", callback_data=f"fb:{event.id}"),
+                InlineKeyboardButton("✏️ fix summary", callback_data=f"fx:{event.id}"),
+            ]]
         )
 
     async def push(self, event: Event) -> None:

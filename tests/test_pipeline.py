@@ -1490,3 +1490,65 @@ def test_get_event_roundtrip(cfg):
     assert events and events[0].id is not None
     fetched = db.get_event(cfg.db_path, events[0].id)
     assert fetched is not None and fetched.ticker == "NVDA"
+
+
+# --------------------------------------------------------------------------- #
+# Summary-quality learning (✏️ corrections → few-shot examples)                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_summarize_includes_house_style_examples():
+    # Stub summary stays faithful to the source so it passes the guard; the point
+    # is that the examples are injected into the prompt.
+    client = _CapturingAnthropic("Palantir is backed by a key ally.")
+    out = summarize.choose_summary(
+        "Palantir gets AI signal", "A key ally backs Palantir.",
+        mode="llm", client=client, use_llm=True, subject="Palantir",
+        examples=["NVDA up 6% after earnings beat — record data-center revenue."],
+    )
+    content = client.captured["messages"][0]["content"]
+    assert "House-style examples" in content
+    assert "record data-center revenue" in content
+    assert out == "Palantir is backed by a key ally."
+
+
+def test_summary_examples_crud(cfg):
+    from mag7bot import db
+
+    now = 1_700_000_000.0
+    db.add_summary_example(cfg.db_path, "NVDA", "earnings", "old vague",
+                           "Nvidia beat on data-center revenue.", now)
+    assert db.recent_summary_examples(cfg.db_path) == ["Nvidia beat on data-center revenue."]
+    rows = db.list_summary_examples(cfg.db_path)
+    assert len(rows) == 1 and rows[0]["ticker"] == "NVDA"
+    assert db.deactivate_summary_example(cfg.db_path, rows[0]["id"]) is True
+    assert db.recent_summary_examples(cfg.db_path) == []  # forgotten → not reused
+
+
+def test_build_events_threads_examples_into_summary(cfg):
+    import dataclasses
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    db.add_summary_example(cfg.db_path, "NVDA", "product_launch", "old",
+                           "Concrete house-style line.", now)
+
+    captured = {}
+
+    class _C:
+        def __init__(self):
+            parsed = type("P", (), {"summary": "Nvidia ships a product."})()
+            resp = type("R", (), {"parsed_output": parsed})()
+
+            def _parse(_self, **kw):
+                captured.update(kw)
+                return resp
+
+            self.messages = type("M", (), {"parse": _parse})()
+
+    llm_cfg = dataclasses.replace(cfg, summary_mode="llm")
+    item = _item("Nvidia unveils a product", ticker="NVDA", source="finnhub",
+                 url="https://www.reuters.com/z", ts=now)
+    ingest.build_events(llm_cfg, [item], now, client=_C())
+    content = captured["messages"][0]["content"]
+    assert "Concrete house-style line." in content

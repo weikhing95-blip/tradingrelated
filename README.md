@@ -410,16 +410,21 @@ verified link + timestamp. Two modes (`SUMMARY_MODE`):
 ## Curation learning (non-blocking feedback)
 
 The feed never waits for approval — posts go out instantly. To curate it, every
-alert carries one **owner-only 👎 "not useful"** button (`ENABLE_FEEDBACK_LEARNING`,
-on by default). Tapping it records feedback privately (subscribers' taps are
-ignored). When the same **(ticker, event type)** is flagged **3×**, the bot
-**auto-promotes a suppression rule** — future matches are dropped *before*
-summarising (so they cost nothing) — and DMs you what it learned. It's the
-SENTINEL pattern: corrections become durable, deterministic rules, no LLM cost.
-Fully transparent and reversible:
-- **`/rules`** — list the learned suppression rules.
-- **`/unrule <id>`** — remove one (that ticker+type can post again).
-- **`/feedback`** — 👎 tallies per ticker+type (what's trending toward a mute).
+alert carries two **owner-only** buttons (`ENABLE_FEEDBACK_LEARNING`, on by
+default; subscribers' taps are ignored):
+
+- **👎 not useful** — *curation.* When the same **(ticker, event type)** is
+  flagged **3×**, the bot **auto-promotes a suppression rule** — future matches
+  are dropped *before* summarising (so they cost nothing) — and DMs you what it
+  learned. Manage with **`/rules`**, **`/unrule <id>`**, **`/feedback`** (tallies).
+- **✏️ fix summary** — *summary quality.* The bot DMs you to reply with a better
+  summary; your reply is stored as a **house-style few-shot example** and fed to
+  the LLM summarizer so future summaries match your tone/specificity. Manage with
+  **`/examples`**, **`/forget <id>`** (and **`/cancel`** to abort a pending edit).
+
+It's the SENTINEL pattern adapted to never block posting: corrections become
+durable rules (curation, deterministic, no LLM cost) and durable style examples
+(summaries). Fully transparent and reversible.
 
 ## Yahoo Finance (breadth wire)
 
@@ -521,6 +526,8 @@ to confirm health and `/watchlist`, then wait for the first live alert.
 | `/add_source <domain> [name] [tier]` · `/remove_source <domain>` | Approve / remove a whitelist publisher |
 | `/rules` · `/unrule <id>` | List / remove learned 👎 suppression rules |
 | `/feedback` | 👎 tallies per ticker+type (trending toward a mute) |
+| `/examples` · `/forget <id>` | List / remove ✏️ house-style summary examples |
+| `/cancel` | Abort a pending ✏️ summary edit |
 
 ## Layout
 
