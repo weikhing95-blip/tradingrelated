@@ -280,7 +280,10 @@ def run_live(cfg: Config) -> None:
     application.bot_data["cfg"] = cfg
     application.bot_data["client"] = _make_client(cfg)
     application.bot_data["publisher"] = publisher_mod.ChannelPublisher(
-        application.bot, cfg.channel_id, feedback_enabled=cfg.enable_feedback_learning
+        application.bot, cfg.channel_id,
+        feedback_enabled=cfg.enable_feedback_learning,
+        owner_id=cfg.owner_user_id,
+        public=cfg.public_channel,
     )
     # Live whitelist = config defaults + owner-approved additions (DB).
     whitelist_provider = lambda: ingest.effective_whitelist(cfg)  # noqa: E731

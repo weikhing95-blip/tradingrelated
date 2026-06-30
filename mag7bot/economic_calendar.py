@@ -121,6 +121,7 @@ def format_calendar_digest(events: Sequence[CalEvent], day: datetime) -> str:
     lines.append("")
     lines.append("─────────────────")
     lines.append("Consensus via ForexFactory · times SGT")
+    lines.append("ℹ️ Informational only — not financial advice.")
     return "\n".join(lines)
 
 

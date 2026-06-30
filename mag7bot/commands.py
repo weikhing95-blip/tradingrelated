@@ -642,6 +642,40 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+_DISCLAIMER = (
+    "📋 <b>About this channel</b>\n\n"
+    "Automated, source-verified market-news alerts on the Magnificent 7 "
+    "(plus MU/PLTR) and US &amp; global macro — summarised in a consistent house "
+    "voice, every alert linked to its source.\n\n"
+    "⚠️ <b>Informational only — not financial advice.</b> Do your own research; "
+    "nothing here is a recommendation to buy or sell."
+)
+
+
+@owner_only
+async def cmd_post_disclaimer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Post the channel disclaimer and pin it (run once before going public)."""
+    cfg = _cfg(context)
+    try:
+        msg = await context.application.bot.send_message(
+            chat_id=cfg.channel_id, text=_DISCLAIMER, parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    except Exception as exc:
+        await update.message.reply_text(f"Couldn't post the disclaimer: {exc}")
+        return
+    try:
+        await context.application.bot.pin_chat_message(
+            chat_id=cfg.channel_id, message_id=msg.message_id, disable_notification=True
+        )
+        await update.message.reply_text("Posted and pinned the channel disclaimer. ✅")
+    except Exception as exc:
+        await update.message.reply_text(
+            f"Posted the disclaimer, but couldn't pin it ({exc}). "
+            "Give the bot 'Pin Messages' admin rights, or pin it manually."
+        )
+
+
 @owner_only
 async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show today's high-impact macro calendar on demand (forward preview)."""
@@ -855,6 +889,7 @@ def register(application: Application) -> None:
         "soul_reset": cmd_soul_reset,
         "soul_review": cmd_soul_review,
         "calendar": cmd_calendar,
+        "post_disclaimer": cmd_post_disclaimer,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))
