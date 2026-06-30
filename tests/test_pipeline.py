@@ -1687,3 +1687,60 @@ def test_relay_macro_detector_covers_more_indicators():
     assert tm._is_macro("German CPI rises 0.1%") is True
     # Non-macro chatter still ignored.
     assert tm._is_macro("Apple unveils a new MacBook") is False
+
+
+# --------------------------------------------------------------------------- #
+# Multi-company tagging (header shows every watched name in the story)          #
+# --------------------------------------------------------------------------- #
+
+
+def test_tickers_in_finds_all_watchlist_companies():
+    from mag7bot import companies
+
+    wl = ["AAPL", "GOOGL", "MSFT", "NVDA"]
+    found = companies.tickers_in(
+        "CMA proposes new Apple and Google mobile platform rules", wl
+    )
+    assert "AAPL" in found and "GOOGL" in found
+    assert "MSFT" not in found and "NVDA" not in found
+    # Cashtags also match.
+    assert companies.tickers_in("$MSFT and $NVDA partner", wl) == ["MSFT", "NVDA"]
+
+
+def test_build_events_tags_multiple_tickers(cfg):
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0
+    item = _item(
+        "CMA proposes new Apple and Google mobile platform rules for UK developers",
+        ticker="AAPL", source="finnhub", url="https://www.reuters.com/cma", ts=now,
+    )
+    events = ingest.build_events(cfg, [item], now)
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.ticker == "AAPL"                  # primary unchanged (dedup/DB key)
+    assert "AAPL" in ev.tickers and "GOOGL" in ev.tickers  # both tagged
+    assert ev.tickers[0] == "AAPL"              # primary first
+
+
+def test_format_alert_shows_multiple_tickers():
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    ev = Event(
+        ticker="AAPL", tickers=["AAPL", "GOOGL"], type=EventType.LEGAL_REGULATORY,
+        summary="UK regulator proposes new platform rules for Apple and Google.",
+        tier=Tier.WIRE, materiality=Materiality.MATERIAL, ts=1_700_000_000.0,
+        links=["https://www.reuters.com/x"],
+    )
+    line1 = formatter.format_alert(ev).splitlines()[0]
+    assert line1 == "$AAPL · $GOOGL"
+
+
+def test_format_alert_single_ticker_unchanged():
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    ev = Event(
+        ticker="NVDA", type=EventType.NEWS, summary="Nvidia ships a chip.",
+        tier=Tier.WIRE, materiality=Materiality.MATERIAL, ts=1_700_000_000.0,
+    )
+    assert formatter.format_alert(ev).splitlines()[0] == "$NVDA"  # tickers empty → falls back
