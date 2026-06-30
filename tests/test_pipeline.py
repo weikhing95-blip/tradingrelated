@@ -1628,3 +1628,62 @@ def test_build_events_threads_soul_into_summary(cfg):
                  url="https://www.reuters.com/soul", ts=now)
     ingest.build_events(llm_cfg, [item], now, client=_C())
     assert "DISTINCTIVE-SOUL-MARKER" in captured["system"]
+
+
+# --------------------------------------------------------------------------- #
+# Economic-calendar preview + broadened macro relay                             #
+# --------------------------------------------------------------------------- #
+
+_FF_JSON = """[
+ {"title":"GDP (QoQ) (Q1)","country":"GBP","date":"2026-06-30T09:00:00+08:00","impact":"High","forecast":"0.6%","previous":"0.2%"},
+ {"title":"German CPI (MoM) (Jun)","country":"EUR","date":"2026-06-30T15:00:00+08:00","impact":"High","forecast":"0.1%","previous":"-0.2%"},
+ {"title":"Chicago PMI (Jun)","country":"USD","date":"2026-06-30T16:45:00+08:00","impact":"High","forecast":"60.0","previous":"62.7"},
+ {"title":"Some low-impact thing","country":"USD","date":"2026-06-30T18:00:00+08:00","impact":"Low","forecast":"","previous":""},
+ {"title":"Aussie jobs","country":"AUD","date":"2026-06-30T08:00:00+08:00","impact":"High","forecast":"","previous":""},
+ {"title":"Next-day CPI","country":"USD","date":"2026-07-01T12:00:00+08:00","impact":"High","forecast":"0.2%","previous":"0.1%"}
+]"""
+
+
+def test_calendar_parse_filter_and_format():
+    from datetime import datetime
+    from mag7bot import economic_calendar as ec
+    from mag7bot.config import SGT
+
+    events = ec.parse_calendar(_FF_JSON)
+    assert len(events) == 6
+    day = datetime(2026, 6, 30, 12, 0, tzinfo=SGT)
+    todays = ec.events_for_day(events, day, ["USD", "EUR", "GBP"], ["High"])
+    titles = [e.title for e in todays]
+    # High-impact USD/EUR/GBP on the 30th only: low-impact, AUD (off-list) and the
+    # next-day CPI are excluded.
+    assert titles == ["GDP (QoQ) (Q1)", "German CPI (MoM) (Jun)", "Chicago PMI (Jun)"]
+
+    text = ec.format_calendar_digest(todays, day)
+    assert "high-impact macro" in text
+    assert "Chicago PMI (Jun)" in text and "prev 62.7 · est 60.0" in text
+    assert "🕒 16:45 SGT" in text
+
+
+def test_calendar_empty_day_is_blank():
+    from datetime import datetime
+    from mag7bot import economic_calendar as ec
+    from mag7bot.config import SGT
+
+    assert ec.format_calendar_digest([], datetime(2026, 6, 30, tzinfo=SGT)) == ""
+    assert ec.parse_calendar("not json") == []
+
+
+def test_relay_macro_detector_covers_more_indicators():
+    from mag7bot import telegram_monitor as tm
+
+    # Previously-missed high-impact indicators now relay (tagged MACRO).
+    assert tm._is_macro("USD | Chicago PMI (Jun) Forecast 60.0") is True
+    assert tm._is_macro("JOLTS Job Openings come in below forecast") is True
+    assert tm._is_macro("CB Consumer Confidence ticks higher") is True
+    assert tm._is_macro("US retail sales rebound in May") is True
+    assert tm._is_macro("ECB holds rates; Lagarde stays cautious") is True
+    # Still covered.
+    assert tm._is_macro("GBP | GDP (QoQ) (Q1)") is True
+    assert tm._is_macro("German CPI rises 0.1%") is True
+    # Non-macro chatter still ignored.
+    assert tm._is_macro("Apple unveils a new MacBook") is False
