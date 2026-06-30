@@ -1744,3 +1744,67 @@ def test_format_alert_single_ticker_unchanged():
         tier=Tier.WIRE, materiality=Materiality.MATERIAL, ts=1_700_000_000.0,
     )
     assert formatter.format_alert(ev).splitlines()[0] == "$NVDA"  # tickers empty → falls back
+
+
+# --------------------------------------------------------------------------- #
+# Semantic dedup (LLM fallback for paraphrased duplicates)                      #
+# --------------------------------------------------------------------------- #
+
+
+class _DupStub:
+    """Stub LLM that returns a fixed duplicate_of id (or None)."""
+
+    def __init__(self, match_id):
+        parsed = type("P", (), {"duplicate_of": match_id})()
+        resp = type("R", (), {"parsed_output": parsed})()
+        self.captured = {}
+
+        def _parse(_self, **kw):
+            self.captured.update(kw)
+            return resp
+
+        self.messages = type("M", (), {"parse": _parse})()
+
+
+def test_semantic_find_matches_and_validates_id():
+    from mag7bot.pipeline import dedup
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    cand = Event(id=7, ticker="AAPL", type=EventType.LEGAL_REGULATORY,
+                 summary="CMA proposes new Apple/Google app payment rules.",
+                 tier=Tier.WIRE, materiality=Materiality.MATERIAL, ts=1.0)
+    # Model says id 7 → returns that event.
+    assert dedup.semantic_find(_DupStub(7), "UK CMA forces Apple, Google on payments", [cand], "m") is cand
+    # Model says none → None.
+    assert dedup.semantic_find(_DupStub(None), "x", [cand], "m") is None
+    # Model hallucinates a non-candidate id → None (validated against candidates).
+    assert dedup.semantic_find(_DupStub(999), "x", [cand], "m") is None
+    # No candidates → no call, None.
+    assert dedup.semantic_find(_DupStub(7), "x", [], "m") is None
+
+
+def test_build_events_semantic_dedup_collapses_paraphrase(cfg):
+    import dataclasses
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    llm_cfg = dataclasses.replace(cfg, summary_mode="llm")
+
+    # First story posts (stub summary stays faithful so it survives the guard).
+    first = _item("CMA Proposes New Apple And Google Mobile Platform Rules",
+                  ticker="AAPL", source="finnhub", url="https://www.reuters.com/cma1", ts=now)
+    ev1 = ingest.build_events(llm_cfg, [first], now, client=_StubAnthropic("Apple and Google face new CMA platform rules."))
+    assert len(ev1) == 1
+    first_id = ev1[0].id
+
+    # A differently-worded re-report from another outlet (different URL/words).
+    second = _item(
+        "UK Competition and Markets Authority moves to force Apple, Google open payments",
+        ticker="AAPL", source="yahoo_news", url="https://finance.yahoo.com/cma2", ts=now + 1500,
+    )
+    # The semantic check (stub) says it duplicates the first → no new event.
+    ev2 = ingest.build_events(llm_cfg, [second], now + 1500, client=_DupStub(first_id))
+    assert ev2 == []
+    # Only one event exists for AAPL, with both links merged.
+    recent = db.recent_events(llm_cfg.db_path, llm_cfg.feed_id, "AAPL", now - 3600)
+    assert len(recent) == 1 and len(recent[0].links) == 2

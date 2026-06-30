@@ -87,6 +87,54 @@ def collapse(items: List[RawItem]) -> List[List[RawItem]]:
     return groups
 
 
+def semantic_find(client, headline: str, candidates: List[Event], model: str) -> Optional[Event]:
+    """LLM fallback for paraphrased duplicates the lexical checks miss: does
+    ``headline`` report the SAME underlying event as any recent candidate (same
+    companies + same development, even if worded differently or from another
+    outlet)? Returns the matching Event or None. One cheap call; the caller only
+    invokes this when there's a plausible (same-company) candidate, so it rarely
+    fires. Any error → None (fall through to posting)."""
+    cands = [ev for ev in candidates if ev.id is not None][:8]
+    if not cands or client is None:
+        return None
+    from pydantic import BaseModel, Field
+
+    class _Dup(BaseModel):
+        duplicate_of: Optional[int] = Field(
+            default=None,
+            description="id of the prior item reporting the SAME event, or null.",
+        )
+
+    listing = "\n".join(f"[{ev.id}] {ev.summary}" for ev in cands)
+    system = (
+        "You detect duplicate market-news items. Two items are the SAME story when "
+        "they report the same underlying event about the same companies — even if "
+        "worded differently or from different outlets. A follow-up that adds "
+        "materially NEW information is NOT a duplicate. Be conservative: only flag a "
+        "clear same-event match."
+    )
+    content = (
+        f"NEW item:\n{headline}\n\nPRIOR items:\n{listing}\n\n"
+        "Which prior [id] reports the SAME event as NEW? Set duplicate_of to that "
+        "id, or null if none match."
+    )
+    try:
+        resp = client.messages.parse(
+            model=model, max_tokens=300, system=system,
+            messages=[{"role": "user", "content": content}], output_format=_Dup,
+        )
+    except Exception:
+        return None
+    parsed = resp.parsed_output
+    match_id = parsed.duplicate_of if parsed else None
+    if match_id is None:
+        return None
+    for ev in cands:
+        if ev.id == match_id:
+            return ev
+    return None
+
+
 def find_existing(headline: str, ticker: str, recent: List[Event]) -> Optional[Event]:
     """Find an already-stored event (within the window) the headline matches.
 
