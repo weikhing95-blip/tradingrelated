@@ -16,7 +16,7 @@ from datetime import time as dtime
 
 from telegram.ext import Application, ContextTypes
 
-from . import db, ingest, publisher as publisher_mod, research, soul
+from . import db, economic_calendar, ingest, publisher as publisher_mod, research, soul
 from .config import (
     ALPACA_POLL_SECONDS,
     EARNINGS_POLL_SECONDS,
@@ -161,6 +161,25 @@ async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def econ_calendar_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Daily forward preview of the day's high-impact macro releases (free
+    ForexFactory feed). Posts a single digest to the channel; skips quietly if
+    the day has no qualifying events."""
+    bot_data = context.application.bot_data
+    cfg = bot_data["cfg"]
+    from datetime import datetime
+    day = datetime.fromtimestamp(time.time(), tz=SGT)
+    try:
+        text = await economic_calendar.build_daily_preview(
+            day, cfg.econ_calendar_currencies, cfg.econ_calendar_impacts
+        )
+    except Exception as exc:
+        print(f"⚠️  Economic-calendar preview failed: {type(exc).__name__}: {exc}")
+        return
+    if text:
+        await bot_data["publisher"].send_digest(text)
+
+
 def schedule_digest(application: Application, hhmm: str) -> None:
     """(Re)schedule the daily digest at HHMM SGT."""
     jq = application.job_queue
@@ -239,6 +258,13 @@ def setup_jobs(application: Application) -> None:
             name="soul_review",
         )
         print("🧠 Soul review ENABLED (weekly: distil feedback into the house voice).")
+    if cfg.enable_econ_calendar:
+        hh, mm = int(cfg.econ_calendar_time_sgt[:2]), int(cfg.econ_calendar_time_sgt[2:])
+        jq.run_daily(
+            econ_calendar_job, time=dtime(hour=hh, minute=mm, tzinfo=SGT),
+            name="econ_calendar",
+        )
+        print(f"📅 Economic-calendar preview ENABLED (daily {cfg.econ_calendar_time_sgt} SGT).")
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(
         application, hhmm

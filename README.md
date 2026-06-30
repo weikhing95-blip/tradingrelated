@@ -323,6 +323,12 @@ Beyond per-company news, the bot covers what moves these names:
   new release, e.g. `📊 US Core CPI (May 2026) — +0.3% MoM, +3.2% YoY`. These are
   economy-wide (no ticker), Tier 1, treated as critical (instant push). Off
   until `FRED_API_KEY` is set (free from fredaccount.stlouisfed.org).
+- **Economic-calendar preview (`ENABLE_ECON_CALENDAR`, free):** a once-a-day
+  forward heads-up of the day's **high-impact** macro releases with consensus +
+  previous, e.g. `🇬🇧 GBP · GDP (QoQ, Q1) — 🕒 09:00 SGT / prev 0.2% · est 0.6%`.
+  Uses the free ForexFactory weekly feed (no key); posts at `ECON_CALENDAR_TIME_SGT`
+  for the configured `ECON_CALENDAR_CURRENCIES` / `ECON_CALENDAR_IMPACT`. Skips
+  days with nothing qualifying. On demand any time with **`/calendar`**.
 - **Earnings (`earnings`, uses the Finnhub key):** a one-time **upcoming-earnings
   preview** a few days before a watched name reports
   (`$AAPL Q3 2026 earnings expected Thu 31 Jul (after close) — consensus EPS $1.42, Rev $85.9B est`),
@@ -545,6 +551,7 @@ to confirm health and `/watchlist`, then wait for the first live alert.
 | `/cancel` | Abort a pending ✏️ summary edit |
 | `/soul` · `/soul_reset` | View / reset the learned house voice (style guide) |
 | `/soul_review` | Distil recent feedback into the house voice now (LLM) |
+| `/calendar` | Today's high-impact macro calendar (forward preview) |
 
 ## Layout
 

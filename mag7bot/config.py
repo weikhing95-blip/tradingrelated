@@ -148,6 +148,10 @@ class Config:
     enable_alpaca: bool = True          # Alpaca (Benzinga) news — active only when keys are set
     enable_price_move: bool = True      # unusual intraday-move alerts (Yahoo chart; free)
     enable_feedback_learning: bool = True  # 👎 feedback buttons + learned suppression rules
+    enable_econ_calendar: bool = True   # daily forward macro-calendar preview (free)
+    econ_calendar_time_sgt: str = "0700"  # when to post the daily macro preview (SGT)
+    econ_calendar_currencies: tuple = ("USD", "EUR", "GBP", "JPY", "CNY")
+    econ_calendar_impacts: tuple = ("High",)
 
     # Price-move detector thresholds (see constants above).
     price_move_multiplier: float = PRICE_MOVE_MULTIPLIER
@@ -239,6 +243,16 @@ def load_config(dry_run: bool = False) -> Config:
     enable_alpaca = os.environ.get("ENABLE_ALPACA", "true").strip().lower() not in _falsy
     enable_price_move = os.environ.get("ENABLE_PRICE_MOVE", "true").strip().lower() not in _falsy
     enable_feedback_learning = os.environ.get("ENABLE_FEEDBACK_LEARNING", "true").strip().lower() not in _falsy
+    enable_econ_calendar = os.environ.get("ENABLE_ECON_CALENDAR", "true").strip().lower() not in _falsy
+    econ_calendar_time_sgt = (os.environ.get("ECON_CALENDAR_TIME_SGT", "0700").strip() or "0700")
+    _ccy_raw = os.environ.get("ECON_CALENDAR_CURRENCIES", "USD,EUR,GBP,JPY,CNY")
+    econ_calendar_currencies = tuple(
+        c.strip().upper() for c in _ccy_raw.split(",") if c.strip()
+    ) or ("USD", "EUR", "GBP", "JPY", "CNY")
+    _imp_raw = os.environ.get("ECON_CALENDAR_IMPACT", "High")
+    econ_calendar_impacts = tuple(
+        i.strip().title() for i in _imp_raw.split(",") if i.strip()
+    ) or ("High",)
     enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "false").strip().lower() in _truthy
 
     def _float_env(name: str, default: float) -> float:
@@ -297,6 +311,10 @@ def load_config(dry_run: bool = False) -> Config:
         enable_alpaca=enable_alpaca,
         enable_price_move=enable_price_move,
         enable_feedback_learning=enable_feedback_learning,
+        enable_econ_calendar=enable_econ_calendar,
+        econ_calendar_time_sgt=econ_calendar_time_sgt,
+        econ_calendar_currencies=econ_calendar_currencies,
+        econ_calendar_impacts=econ_calendar_impacts,
         price_move_multiplier=price_move_multiplier,
         price_move_min_pct=price_move_min_pct,
         telegram_api_id=tg_api_id,

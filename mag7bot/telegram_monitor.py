@@ -49,14 +49,30 @@ _OFF_TOPIC = re.compile(
 )
 
 
-# US macro / Fed relevance — relayed posts with no watchlist ticker but clear
-# macro content still forward (tagged MACRO), matching the /goal's "US macro &
-# Fed" scope. Kept deliberately specific so general world news doesn't leak in.
+# Macro relevance — relayed posts with no watchlist ticker but clear macro
+# content still forward (tagged MACRO). Covers the full set of high-impact
+# indicators (US *and* major economies — GBP/EUR/JPY GDP/CPI/PMI all matter to
+# these names), so a curated channel's "today's data" posts aren't silently
+# dropped. Kept to genuine economic terms so general world news doesn't leak in.
 _MACRO_RE = re.compile(
-    r"\b(fed|fomc|federal reserve|powell|rate hike|rate cut|rate decision|"
-    r"interest rate|rate-hike|rate-cut|basis points|bps|cpi|core cpi|inflation|"
-    r"pce|ppi|jobless claims|nonfarm|payrolls|jobs report|unemployment rate|"
-    r"\bgdp\b|treasury yield|tariff|tariffs)\b",
+    r"\b("
+    # Central banks / rates
+    r"fed|fomc|federal reserve|powell|ecb|lagarde|boe|bank of england|boj|"
+    r"central bank|rate hike|rate cut|rate decision|interest rate|rate-hike|"
+    r"rate-cut|basis points|bps|hawkish|dovish|"
+    # Inflation
+    r"cpi|core cpi|inflation|pce|ppi|"
+    # Labour
+    r"jobless claims|initial claims|nonfarm|payrolls|jobs report|"
+    r"unemployment|jolts|job openings|adp|"
+    # Growth / activity
+    r"\bgdp\b|\bpmi\b|\bism\b|manufacturing pmi|services pmi|"
+    r"retail sales|durable goods|industrial production|factory orders|"
+    r"consumer confidence|consumer sentiment|"
+    # Housing / trade / yields / policy
+    r"housing starts|building permits|home sales|trade balance|"
+    r"treasury yield|bond yield|tariff|tariffs"
+    r")\b",
     re.IGNORECASE,
 )
 

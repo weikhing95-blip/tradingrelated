@@ -29,7 +29,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import companies, db, ingest, research, soul
+from . import companies, db, economic_calendar, ingest, research, soul
 from .config import FEEDBACK_SUPPRESS_THRESHOLD, SGT, Config
 from .schemas import Event, EventType, Materiality, SentMode, Tier
 
@@ -643,6 +643,25 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 @owner_only
+async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show today's high-impact macro calendar on demand (forward preview)."""
+    cfg = _cfg(context)
+    day = datetime.fromtimestamp(time.time(), tz=SGT)
+    try:
+        text = await economic_calendar.build_daily_preview(
+            day, cfg.econ_calendar_currencies, cfg.econ_calendar_impacts
+        )
+    except Exception as exc:
+        await update.message.reply_text(f"Calendar fetch failed: {type(exc).__name__}: {exc}")
+        return
+    await update.message.reply_text(
+        text or "No high-impact macro on the calendar today.",
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+@owner_only
 async def cmd_soul(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show the current house voice (the style guide injected into summaries)."""
     cfg = _cfg(context)
@@ -835,6 +854,7 @@ def register(application: Application) -> None:
         "soul": cmd_soul,
         "soul_reset": cmd_soul_reset,
         "soul_review": cmd_soul_review,
+        "calendar": cmd_calendar,
     }
     for name, fn in handlers.items():
         application.add_handler(CommandHandler(name, fn))
