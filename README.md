@@ -225,13 +225,17 @@ the bot. Every alert carries a canonical link to a primary or reputable source �
 no social media, no unverifiable noise. Built to the spec in `mag7newsbotprd.md`.
 
 > **Goal:** a **fast, high-signal, source-verified market feed** for a focused
-> watchlist (Mag 7 + MU/PLTR) plus US macro & the Fed — matching the speed and
-> density of **Walter Bloomberg / SM News** in a consistent house voice.
-> Each alert: `$TICKER` first, a bite-size fact-forward summary (hard numbers
-> when available), a verified `(link)`, and a timestamp. **24/7**, **firehose**
-> volume, deduped/cross-confirmed, with curated-channel relay (Walter/SM/Kobeissi)
-> re-summarised into the house format — relaying both watchlist-company posts and
-> **US macro/Fed** posts (Fed, CPI, rates, jobs, tariffs → tagged `MACRO`). Knobs:
+> watchlist (Mag 7 + MU/PLTR) plus **macro & central banks — US and the major
+> economies (UK/EU/JP)**. Two co-equal pillars: the **speed and density of
+> Walter Bloomberg / SM News**, *and* a **self-curating, low-noise feed tuned to
+> the owner's definition of signal** (it learns what to surface and how to say
+> it). Each alert: `$TICKER`(s) first, a bite-size fact-forward summary (hard
+> numbers when available), a verified `(link)`, and a timestamp — in a consistent
+> house voice. **24/7**, **firehose**, deduped/cross-confirmed. Coverage spans
+> primary + wire — EDGAR, Benzinga/Alpaca, earnings, analyst ratings, trading
+> halts, **unusual price moves**, and a **daily economic-calendar preview** —
+> plus curated-channel relay (Walter/SM/Kobeissi) re-summarised into the house
+> format (watchlist-company *and* macro/Fed posts → tagged `MACRO`). Knobs:
 > `FEED_VOLUME`, `QUIET_HOURS`, `SUMMARY_MODE`.
 
 ```
