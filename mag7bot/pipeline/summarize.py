@@ -56,11 +56,18 @@ class _BiteSize(BaseModel):
 
 _SYSTEM = (
     "You compress financial news into one or two neutral, factual sentences "
-    "(≤320 characters) — bite-size, wire-style. Use ONLY facts present in the "
-    "provided headline and text. Do NOT add numbers, company/person/product "
-    "names, or claims that are not there, and do NOT strengthen a hedge into a "
-    "certainty (e.g. 'may consider' must not become 'announces'). No opinion, "
-    "no investment advice, no hype, no ticker symbols."
+    "(≤320 characters) — bite-size, wire-style. "
+    "NAME THE SPECIFICS the source gives: state the companies, people, products, "
+    "and countries explicitly. Never replace a named entity with a vague "
+    "placeholder — e.g. do NOT write 'a major data-analytics company' or 'a key "
+    "ally' when the source names them. If a 'Subject company' is provided, always "
+    "refer to it by that name (not a generic description). "
+    "Use ONLY facts present in the provided text — do NOT invent numbers, names, "
+    "or claims that aren't there, and do NOT strengthen a hedge into a certainty "
+    "(e.g. 'may consider' must not become 'announces'). "
+    "Do NOT add meta-commentary about the source itself (e.g. 'details were not "
+    "provided in the source'); just state the news as concisely as the facts "
+    "allow. No opinion, no investment advice, no hype, no ticker symbols."
 )
 
 # Capitalised tokens that are generic (not entities), so their presence in a
@@ -127,8 +134,15 @@ def _faithful(summary: str, source_text: str) -> bool:
     return True
 
 
-def _llm_bite_size(headline: str, body: str, client, model: str = HAIKU_MODEL) -> Optional[str]:
-    content = f"Headline: {headline}\n\nArticle text: {body or '(none provided)'}"
+def _llm_bite_size(
+    headline: str, body: str, client, model: str = HAIKU_MODEL, subject: str = ""
+) -> Optional[str]:
+    parts = []
+    if subject:
+        parts.append(f"Subject company: {subject}")
+    parts.append(f"Headline: {headline}")
+    parts.append(f"Article text: {body or '(none provided)'}")
+    content = "\n\n".join(parts)
     resp = client.messages.parse(
         model=model,
         max_tokens=2000,
@@ -140,7 +154,9 @@ def _llm_bite_size(headline: str, body: str, client, model: str = HAIKU_MODEL) -
     if parsed is None or not parsed.summary.strip():
         return None
     candidate = parsed.summary.strip()
-    if not _faithful(candidate, f"{headline} {body}"):
+    # The subject company is a known fact (from the ticker), so naming it is never
+    # a fabrication — include it in the faithfulness source text.
+    if not _faithful(candidate, f"{subject} {headline} {body}"):
         return None
     return truncate(candidate)
 
@@ -152,13 +168,16 @@ def choose_summary(
     client=None,
     use_llm: bool = False,
     model: str = HAIKU_MODEL,
+    subject: str = "",
 ) -> str:
     """Return the bite-size summary for an item.
 
     ``use_llm`` lets the caller gate LLM compression to material/push items so
     digest items don't each cost an API call. ``model`` defaults to a cheap
-    fast model (Haiku). Falls back to rich-verbatim on any error, missing
-    client, or a faithfulness-guard failure.
+    fast model (Haiku). ``subject`` is the known company name (from the ticker);
+    passing it stops the model genericising the subject into "a major company".
+    Falls back to rich-verbatim on any error, missing client, or a
+    faithfulness-guard failure.
     """
     # A boilerplate body (aggregator/consent text) carries no facts — drop it so
     # the LLM summarises the real headline instead of parroting the boilerplate.
@@ -167,7 +186,7 @@ def choose_summary(
     rich = rich_verbatim(headline, body)
     if mode == "llm" and use_llm and client is not None:
         try:
-            llm = _llm_bite_size(headline, body, client, model)
+            llm = _llm_bite_size(headline, body, client, model, subject)
         except Exception:
             llm = None
         if llm:

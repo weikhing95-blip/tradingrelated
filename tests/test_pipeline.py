@@ -496,6 +496,45 @@ def test_summarize_llm_used_when_faithful():
     assert out == "Nvidia buys Run:ai."
 
 
+class _CapturingAnthropic:
+    """Stub that records the prompt content and returns a fixed summary."""
+
+    def __init__(self, summary):
+        self.captured = {}
+        parsed = type("P", (), {"summary": summary})()
+        resp = type("R", (), {"parsed_output": parsed})()
+
+        def _parse(_self, **kw):
+            self.captured.update(kw)
+            return resp
+
+        self.messages = type("M", (), {"parse": _parse})()
+
+
+def test_summarize_subject_anchors_company_name():
+    """The known company name (from the ticker) is fed to the model and is
+    allowed by the faithfulness guard even when absent from a vague teaser body —
+    so summaries name 'Palantir', not 'a major data-analytics company'."""
+    client = _CapturingAnthropic("Japan signals support for Palantir's AI initiative.")
+    out = summarize.choose_summary(
+        "Palantir gets a powerful AI signal",
+        "A key U.S. ally signaled support for a major data-analytics company.",
+        mode="llm", client=client, use_llm=True, subject="Palantir",
+    )
+    # Subject is injected into the prompt…
+    content = client.captured["messages"][0]["content"]
+    assert "Subject company: Palantir" in content
+    # …and a summary naming the subject survives the faithfulness guard.
+    assert out == "Japan signals support for Palantir's AI initiative."
+
+
+def test_faithful_allows_subject_company_token():
+    # "Palantir" is the known subject (passed in source text) → not a fabrication.
+    assert summarize._faithful(
+        "Palantir wins a defense AI contract", "Palantir A key ally backs the initiative."
+    )
+
+
 def test_whitelist_publisher_whole_word_not_substring():
     # Whole-word publisher match: a spoof label on a non-whitelisted domain is
     # rejected, but a legitimate multi-word publisher is kept.
