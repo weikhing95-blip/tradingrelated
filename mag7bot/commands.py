@@ -644,11 +644,16 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 _DISCLAIMER = (
     "📋 <b>About this channel</b>\n\n"
-    "Automated, source-verified market-news alerts on the Magnificent 7 "
-    "(plus MU/PLTR) and US &amp; global macro — summarised in a consistent house "
-    "voice, every alert linked to its source.\n\n"
-    "⚠️ <b>Informational only — not financial advice.</b> Do your own research; "
-    "nothing here is a recommendation to buy or sell."
+    "Fast, automated market-news alerts on the <b>Magnificent 7</b> (AAPL, MSFT, "
+    "GOOGL, AMZN, NVDA, META, TSLA) plus <b>MU</b> and <b>PLTR</b>, with US &amp; "
+    "global macro and central-bank coverage.\n\n"
+    "• Every alert is summarised in a consistent house voice and <b>linked to its "
+    "source</b> — primary filings, reputable wires, and curated channels.\n"
+    "• Automated 24/7. Sources can be wrong, delayed, or misreported — always "
+    "verify against the linked source before acting.\n\n"
+    "⚠️ <b>Not financial advice.</b> For information only; not a recommendation to "
+    "buy, sell, or hold any security. Do your own research. The operator accepts "
+    "no liability for decisions made from this content."
 )
 
 
