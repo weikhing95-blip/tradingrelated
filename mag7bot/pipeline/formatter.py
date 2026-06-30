@@ -88,11 +88,16 @@ def format_alert(event: Event) -> str:
         {summary}
         🔗 link  ·  [status · ] 🕒 {DD Mon, HH:MM SGT} [· session]
     """
-    # ── Line 1: ticker only — no label, no emoji, no price ─────────────────
+    # ── Line 1: ticker(s) — no label, no emoji, no price ───────────────────
     if event.type == EventType.MACRO or event.ticker.upper() == "MACRO":
         head = "MACRO"
     else:
-        head = f"${_esc(event.ticker.upper())}"
+        # All watchlist companies in the story (e.g. "$AAPL · $GOOGL"), capped so
+        # an unusually broad piece can't produce a runaway header.
+        tickers = [t.upper() for t in (event.tickers or [event.ticker]) if t]
+        if not tickers:
+            tickers = [event.ticker.upper()]
+        head = " · ".join(f"${_esc(t)}" for t in tickers[:4])
 
     # ── Line 2: bite-size summary ──────────────────────────────────────────
     summary_line = _esc(event.summary)

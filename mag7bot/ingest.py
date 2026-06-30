@@ -164,7 +164,8 @@ def _merge_links_into(cfg: Config, existing: Event, links: List[str]) -> None:
 
 
 def _make_event(
-    cfg: Config, group: List[RawItem], event_type, client, examples=None, style_guide=""
+    cfg: Config, group: List[RawItem], event_type, client, examples=None,
+    style_guide="", watchlist=None,
 ) -> Event:
     """Stage 4 — build a send-ready Event from a same-story group."""
     primary = group[0]
@@ -184,8 +185,16 @@ def _make_event(
         use_llm=use_llm, model=cfg.summary_model, subject=subject, examples=examples,
         style_guide=style_guide,
     )
+    # Tag every watchlist company the story is about (headline + summary), primary
+    # first — so "Apple and Google …" shows "$AAPL · $GOOGL", not just one.
+    tickers = [primary.ticker]
+    if watchlist and primary.ticker.upper() != "MACRO":
+        for t in companies.tickers_in(f"{primary.headline} {summary}", watchlist):
+            if t not in tickers:
+                tickers.append(t)
     return Event(
         ticker=primary.ticker,
+        tickers=tickers,
         type=event_type,
         summary=summary,
         links=_dedup_links([i.url for i in group]),
@@ -224,6 +233,8 @@ def build_events(
     learning_on = cfg.summary_mode == "llm" and cfg.enable_feedback_learning
     examples = db.recent_summary_examples(cfg.db_path) if learning_on else []
     style_guide = soul.load(cfg) if learning_on else ""
+    # Watchlist drives multi-company tagging on each event's header.
+    watchlist = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
 
     # Cross-ticker URL dedup: one article often surfaces under several tickers
     # (e.g. a "Micron vs Nvidia" piece returned for both MU and NVDA). Map each
@@ -261,7 +272,9 @@ def build_events(
             _merge_links_into(cfg, existing, links)
             continue
 
-        event = _make_event(cfg, group, type_of[id(primary)], client, examples, style_guide)
+        event = _make_event(
+            cfg, group, type_of[id(primary)], client, examples, style_guide, watchlist
+        )
         event.id = db.insert_event(cfg.db_path, cfg.feed_id, event)
         events.append(event)
         # Register this event's URLs so a later group in the same batch carrying

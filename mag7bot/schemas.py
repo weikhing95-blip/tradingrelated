@@ -156,6 +156,11 @@ class Event(BaseModel):
     """A cleaned-up, send-ready item (PRD §9 `events`). The summary lives here."""
 
     ticker: str
+    tickers: List[str] = Field(
+        default_factory=list,
+        description="All watchlist tickers the story is about (primary first); "
+        "the alert header shows each. Falls back to [ticker] when empty.",
+    )
     type: EventType
     summary: str = Field(description="One-line summary, ≤200 chars.")
     links: List[str] = Field(

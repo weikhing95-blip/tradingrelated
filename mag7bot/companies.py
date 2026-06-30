@@ -76,6 +76,30 @@ def aliases_for(ticker: str) -> List[str]:
     return [t.lower()]
 
 
+def tickers_in(text: str, watchlist: List[str]) -> List[str]:
+    """Every watchlist ticker the text mentions — by ``$CASHTAG`` or a whole-word
+    company alias — in watchlist order. Used so a story about several watched
+    names (e.g. "Apple and Google") tags all of them, not just the one it was
+    fetched under."""
+    import re
+
+    if not text:
+        return []
+    low = text.lower()
+    up = text.upper()
+    found: List[str] = []
+    for ticker in watchlist:
+        t = ticker.upper()
+        if re.search(r"\$" + re.escape(t) + r"\b", up):
+            found.append(t)
+            continue
+        for alias in aliases_for(t):
+            if re.search(r"\b" + re.escape(alias.lower()) + r"\b", low):
+                found.append(t)
+                break
+    return found
+
+
 async def lookup_cik(
     ticker: str,
     user_agent: str = "MarketBrief contact@marketbrief.app",
