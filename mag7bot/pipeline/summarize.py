@@ -28,9 +28,32 @@ MAX_LEN = 320  # bite-size: ~1-3 sentences
 _WS = re.compile(r"\s+")
 _NUM = re.compile(r"\d[\d,.]*")
 
+# Meta / refusal output that carries no news — e.g. "No article text provided;
+# unable to generate summary." Such text slips past the faithfulness guard (it
+# invents no numbers or names) but is worthless to a reader, so the caller drops
+# the item instead of posting it. Scoped to summary/article-refusal phrasing so
+# genuine news ("cannot provide guidance", "unable to meet demand") isn't caught.
+_NONSUMMARY = re.compile(
+    r"no\s+(article|content|source)\s+(text|body|content|provided|available)"
+    r"|no\s+(text|content|summary|information)\s+(was\s+)?(provided|available|found)"
+    r"|(unable|cannot|could\s+not|can'?t)\s+(to\s+)?(generate|create|produce|provide)\s+(a\s+)?summary"
+    r"|(unable|cannot|could\s+not|can'?t)\s+(to\s+)?summari[sz]e"
+    r"|nothing\s+to\s+summari[sz]e"
+    r"|insufficient\s+(information|content|text|context)\s+to",
+    re.IGNORECASE,
+)
+
 
 def _clean(text: str) -> str:
     return _WS.sub(" ", text or "").strip()
+
+
+def is_nonsummary(text: str) -> bool:
+    """True when the text is empty or a refusal/meta note ("no article text
+    provided") rather than actual news — such output adds no value and the caller
+    should drop the item rather than post it."""
+    t = _clean(text)
+    return not t or bool(_NONSUMMARY.search(t))
 
 
 def truncate(text: str, limit: int = MAX_LEN) -> str:
@@ -181,6 +204,11 @@ def _llm_bite_size(
     if parsed is None or not parsed.summary.strip():
         return None
     candidate = parsed.summary.strip()
+    # The model sometimes ignores the no-meta-commentary instruction and returns
+    # a refusal ("No article text provided…"). Treat that as a failure so the
+    # caller falls back to the verbatim headline (and drops it if that's empty too).
+    if is_nonsummary(candidate):
+        return None
     # The subject company is a known fact (from the ticker), so naming it is never
     # a fabrication — include it in the faithfulness source text.
     if not _faithful(candidate, f"{subject} {headline} {body}"):

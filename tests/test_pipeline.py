@@ -1492,6 +1492,33 @@ def test_get_event_roundtrip(cfg):
     assert fetched is not None and fetched.ticker == "NVDA"
 
 
+def test_is_nonsummary_detects_refusals():
+    from mag7bot.pipeline import summarize as s
+
+    # Empty / whitespace / refusal / meta output → not postable.
+    assert s.is_nonsummary("")
+    assert s.is_nonsummary("   ")
+    assert s.is_nonsummary("No article text provided; unable to generate summary.")
+    assert s.is_nonsummary("No content available.")
+    assert s.is_nonsummary("Unable to summarize the article.")
+    assert s.is_nonsummary("Insufficient information to summarize.")
+    # Genuine news that merely contains similar words → postable.
+    assert not s.is_nonsummary("The company said it was unable to meet demand this quarter.")
+    assert not s.is_nonsummary("Management cannot provide full-year guidance amid uncertainty.")
+    assert not s.is_nonsummary("Target stock surged 40% this year under its new CEO.")
+
+
+def test_empty_content_item_is_dropped(cfg):
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0
+    # An item with no headline and no body has nothing to summarise — it must not
+    # reach the channel as a value-less "No article text provided" alert.
+    blank = _item("", ticker="TSLA", source="finnhub",
+                  url="https://www.reuters.com/blank", ts=now)
+    assert ingest.build_events(cfg, [blank], now) == []
+
+
 # --------------------------------------------------------------------------- #
 # Summary-quality learning (✏️ corrections → few-shot examples)                 #
 # --------------------------------------------------------------------------- #

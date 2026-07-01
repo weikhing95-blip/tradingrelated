@@ -296,6 +296,11 @@ def build_events(
         event = _make_event(
             cfg, group, type_of[id(primary)], client, examples, style_guide, watchlist
         )
+        # Nothing worth posting: an empty headline/body yields an empty or
+        # refusal-style summary ("No article text provided…"). Drop it rather
+        # than publish a value-less alert to the channel.
+        if summarize.is_nonsummary(event.summary):
+            continue
         event.id = db.insert_event(cfg.db_path, cfg.feed_id, event)
         events.append(event)
         # Make this event a candidate for later groups in the same batch — both
