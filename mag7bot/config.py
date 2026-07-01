@@ -65,7 +65,7 @@ INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
 
 # Non-blocking curation learning: after this many distinct 👎 ("not useful")
 # on the same (ticker, event_type), auto-promote a suppression rule.
-FEEDBACK_SUPPRESS_THRESHOLD = 3
+FEEDBACK_SUPPRESS_THRESHOLD = 1
 
 # Autonomous research agent: how often to run source discovery (in seconds).
 RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
