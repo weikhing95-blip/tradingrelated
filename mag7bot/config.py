@@ -67,6 +67,16 @@ INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
 # on the same (ticker, event_type), auto-promote a suppression rule.
 FEEDBACK_SUPPRESS_THRESHOLD = 1
 
+# Source health: only DM the owner once a source has failed this many polls in a
+# row (a sustained outage), so a single transient network blip that heals on the
+# next poll stays silent. Failures are always logged regardless.
+SOURCE_ALERT_THRESHOLD = 3
+
+# Channel post: retry a transient network/timeout failure this many times (with
+# exponential backoff) before giving up, so one slow round-trip to Telegram
+# doesn't drop an alert or ping the owner.
+CHANNEL_SEND_ATTEMPTS = 3
+
 # Autonomous research agent: how often to run source discovery (in seconds).
 RESEARCH_AGENT_INTERVAL = 7 * 24 * 3600  # weekly
 
