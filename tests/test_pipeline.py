@@ -946,9 +946,9 @@ def test_source_health_error_then_recovery(cfg):
     now = 1_700_000_000.0
     assert db.record_source_error(cfg.db_path, "finnhub", "boom", now) == 1
     assert db.record_source_error(cfg.db_path, "finnhub", "boom again", now + 1) == 2
-    # A successful fetch after errors is reported as a recovery and resets count.
-    assert db.record_source_ok(cfg.db_path, "finnhub", 5, now + 2) is True
-    assert db.record_source_ok(cfg.db_path, "finnhub", 3, now + 3) is False  # no longer in error
+    # A successful fetch returns the prior error count (2) and resets it to 0.
+    assert db.record_source_ok(cfg.db_path, "finnhub", 5, now + 2) == 2
+    assert db.record_source_ok(cfg.db_path, "finnhub", 3, now + 3) == 0  # already healthy
     health = {h["source"]: h for h in db.get_source_health(cfg.db_path)}
     assert health["finnhub"]["consecutive_errors"] == 0
     assert health["finnhub"]["last_count"] == 3
@@ -973,11 +973,44 @@ def test_run_cycle_isolates_failing_source_and_alerts(cfg):
     # The good source still produced + pushed an event despite the bad one failing.
     assert any(e.ticker == "NVDA" for e in events)
     assert pub.pushed
-    # The failing source was isolated, recorded, and alerted exactly once.
+    # The failing source was isolated and recorded, but a *single* blip stays
+    # silent — the owner is only alerted on a sustained outage (see threshold test).
     health = {h["source"]: h for h in db.get_source_health(cfg.db_path)}
     assert health["yahoo_news"]["consecutive_errors"] == 1
     assert health["finnhub"]["consecutive_errors"] == 0
+    assert sum("failing" in m for m in alerts) == 0
+
+
+def test_source_alert_only_on_sustained_outage_then_recovery(cfg):
+    import asyncio
+
+    from mag7bot import ingest
+    from mag7bot.config import SOURCE_ALERT_THRESHOLD
+
+    now = 1_700_000_000.0
+    alerts = []
+
+    async def alert(msg):
+        alerts.append(msg)
+
+    pub = _CapturePublisher()
+    bad = _NamedSource("yahoo_news", boom=True)
+
+    # Blips below the threshold: no alert yet.
+    for i in range(SOURCE_ALERT_THRESHOLD - 1):
+        asyncio.run(ingest.run_cycle(cfg, [bad], pub, now + i, None, alert=alert))
+    assert sum("failing" in m for m in alerts) == 0
+
+    # Crossing the threshold alerts exactly once (not again on further failures).
+    asyncio.run(ingest.run_cycle(cfg, [bad], pub, now + 10, None, alert=alert))
+    asyncio.run(ingest.run_cycle(cfg, [bad], pub, now + 11, None, alert=alert))
     assert sum("failing" in m for m in alerts) == 1
+
+    # Recovery is announced once, since the outage was announced.
+    good = _NamedSource("yahoo_news", items=[
+        _item("Nvidia ships new GPU", url="https://www.reuters.com/g", ts=now)])
+    asyncio.run(ingest.run_cycle(cfg, [good], pub, now + 20, None, alert=alert))
+    assert sum("recovered" in m for m in alerts) == 1
 
 
 # --------------------------------------------------------------------------- #

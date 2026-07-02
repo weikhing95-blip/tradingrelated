@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
 from . import article, companies, db, soul
-from .config import SGT, Config
+from .config import SGT, SOURCE_ALERT_THRESHOLD, Config
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
 from .sources.base import Source
@@ -386,11 +386,17 @@ async def run_cycle(
             detail = f"{type(exc).__name__}: {exc}"
             n = db.record_source_error(cfg.db_path, source.name, detail, now)
             print(f"⚠️  Source '{source.name}' fetch failed (#{n}): {detail}")
-            if alert and n == 1:  # alert once, on the transition into failure
-                await alert(f"⚠️ Source '{source.name}' is failing — {detail}")
+            # Alert once, only when the outage becomes *sustained* — a single
+            # transient blip that heals next poll never pings the owner.
+            if alert and n == SOURCE_ALERT_THRESHOLD:
+                await alert(
+                    f"⚠️ Source '{source.name}' is failing "
+                    f"({n} polls in a row) — {detail}"
+                )
             continue
-        recovered = db.record_source_ok(cfg.db_path, source.name, len(fetched), now)
-        if alert and recovered:
+        prior_errors = db.record_source_ok(cfg.db_path, source.name, len(fetched), now)
+        # Only announce recovery if we announced the outage (avoids an orphan ✅).
+        if alert and prior_errors >= SOURCE_ALERT_THRESHOLD:
             await alert(f"✅ Source '{source.name}' recovered — {len(fetched)} item(s).")
         for item in fetched:
             db.mark_seen(cfg.db_path, item.source, item.source_item_id, item.ticker)

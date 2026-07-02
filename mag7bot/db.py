@@ -762,14 +762,15 @@ def status_summary(path: Path, feed_id: int, since: float) -> dict:
 # --------------------------------------------------------------------------- #
 
 
-def record_source_ok(path: Path, source: str, count: int, now: float) -> bool:
-    """Record a successful fetch. Returns True if the source was previously in
-    an error state (i.e. this is a recovery), so the caller can notify once."""
+def record_source_ok(path: Path, source: str, count: int, now: float) -> int:
+    """Record a successful fetch. Returns the number of consecutive errors the
+    source had *before* this success (0 if it was already healthy), so the caller
+    can decide whether the prior outage was long enough to announce a recovery."""
     with connect(path) as conn:
         row = conn.execute(
             "SELECT consecutive_errors FROM source_health WHERE source = ?", (source,)
         ).fetchone()
-        recovered = bool(row and row["consecutive_errors"] > 0)
+        prior_errors = int(row["consecutive_errors"]) if row else 0
         conn.execute(
             """INSERT INTO source_health
                    (source, last_ok_ts, last_count, consecutive_errors, updated_at)
@@ -781,7 +782,7 @@ def record_source_ok(path: Path, source: str, count: int, now: float) -> bool:
                    updated_at = excluded.updated_at""",
             (source, now, int(count), now),
         )
-    return recovered
+    return prior_errors
 
 
 def record_source_error(path: Path, source: str, error: str, now: float) -> int:

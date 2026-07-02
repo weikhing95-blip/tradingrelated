@@ -12,10 +12,11 @@ sends it, and marks those events delivered.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Protocol
 
 from . import db
-from .config import Config
+from .config import CHANNEL_SEND_ATTEMPTS, Config
 from .pipeline.formatter import format_alert, format_digest
 from .schemas import Event, SentMode
 
@@ -44,6 +45,32 @@ class ChannelPublisher:
         self._owner_id = owner_id
         self._public = public
 
+    async def _send(self, **kwargs):
+        """Send a message, retrying transient network/timeout errors with
+        exponential backoff. Telegram round-trips from a cloud host occasionally
+        time out; one slow attempt shouldn't drop an alert or alarm the owner.
+        Flood-control (RetryAfter) waits the server-instructed delay. Non-network
+        errors (e.g. lost admin rights) raise immediately — no point retrying."""
+        from telegram.error import NetworkError, RetryAfter, TimedOut
+
+        # Generous per-request timeouts (PTB defaults are ~5s, too tight under load).
+        kwargs.setdefault("read_timeout", 20)
+        kwargs.setdefault("write_timeout", 20)
+        kwargs.setdefault("connect_timeout", 15)
+        delay = 1.0
+        for attempt in range(1, CHANNEL_SEND_ATTEMPTS + 1):
+            try:
+                return await self._bot.send_message(**kwargs)
+            except RetryAfter as exc:
+                if attempt == CHANNEL_SEND_ATTEMPTS:
+                    raise
+                await asyncio.sleep(getattr(exc, "retry_after", delay) or delay)
+            except (TimedOut, NetworkError):
+                if attempt == CHANNEL_SEND_ATTEMPTS:
+                    raise
+                await asyncio.sleep(delay)
+                delay *= 2
+
     def _buttons(self, event: Event):
         """Owner-only 👎/✏️ curation buttons; None when off or event unpersisted."""
         if not self._feedback_enabled or event.id is None:
@@ -60,7 +87,7 @@ class ChannelPublisher:
     async def push(self, event: Event) -> None:
         buttons = self._buttons(event)
         # Public channel → clean post (no buttons); private → buttons on the post.
-        await self._bot.send_message(
+        await self._send(
             chat_id=self._channel_id,
             text=format_alert(event),
             parse_mode="HTML",
@@ -70,7 +97,7 @@ class ChannelPublisher:
         # Public: mirror the alert to the owner's DM so they can still curate.
         if self._public and buttons is not None and self._owner_id:
             try:
-                await self._bot.send_message(
+                await self._send(
                     chat_id=self._owner_id,
                     text="🛠 Curate:\n" + format_alert(event),
                     parse_mode="HTML",
@@ -81,7 +108,7 @@ class ChannelPublisher:
                 pass  # best-effort; never fail the channel post over the mirror
 
     async def send_digest(self, text: str) -> None:
-        await self._bot.send_message(
+        await self._send(
             chat_id=self._channel_id,
             text=text,
             parse_mode="HTML",
