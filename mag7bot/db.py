@@ -495,6 +495,21 @@ def recent_events_window(path: Path, feed_id: int, since_ts: float) -> List[Even
     return [_row_to_event(r) for r in rows]
 
 
+def top_events_since(path: Path, feed_id: int, since_ts: float, limit: int = 12) -> List[Event]:
+    """Highest-signal events since ``since_ts`` for the weekly roundup: ordered by
+    tier (primary first), then cross-confirmation strength, then recency."""
+    with connect(path) as conn:
+        rows = conn.execute(
+            """SELECT * FROM events
+               WHERE feed_id = ? AND ts >= ?
+               ORDER BY CASE tier WHEN 'tier1' THEN 0 WHEN 'tier2' THEN 1 ELSE 2 END,
+                        confirmed_count DESC, ts DESC
+               LIMIT ?""",
+            (feed_id, since_ts, limit),
+        ).fetchall()
+    return [_row_to_event(r) for r in rows]
+
+
 def update_event_links(
     path: Path, event_id: int, links: List[str], confirmed_count: int
 ) -> None:

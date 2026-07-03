@@ -2134,3 +2134,96 @@ def test_fq_a2_03_suppression_applies_in_public_mode(cfg):
     # With a learned suppression rule, the item is dropped even in public mode.
     db.add_suppression_rule(pub.db_path, "NVDA", etype.value, 1, now)
     assert ingest.build_events(pub, [item], now) == []
+
+
+# --------------------------------------------------------------------------- #
+# Phase 5 — public launch prep (public-mode UX + compliance)                    #
+# --------------------------------------------------------------------------- #
+
+
+class _CaptureBot:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, **kwargs):
+        self.sent.append(kwargs)
+        return None
+
+
+def _sample_event(**over):
+    from mag7bot.schemas import Event, EventType, Materiality, Tier
+
+    base = dict(
+        ticker="NVDA", tickers=["NVDA"], type=EventType.SEC_FILING,
+        summary="Nvidia files 8-K on results", links=["https://www.sec.gov/x"],
+        tier=Tier.PRIMARY, materiality=Materiality.MATERIAL, ts=1_700_000_000.0, id=1,
+    )
+    base.update(over)
+    return Event(**base)
+
+
+def test_5a_public_channel_ux():
+    import asyncio
+
+    from mag7bot import publisher as pub_mod
+
+    bot = _CaptureBot()
+    p = pub_mod.ChannelPublisher(
+        bot, "@chan", feedback_enabled=True, owner_id=999, public=True,
+        channel_handle="@marketbrief",
+    )
+    asyncio.run(p.push(_sample_event()))
+
+    channel = [s for s in bot.sent if s["chat_id"] == "@chan"][0]
+    owner = [s for s in bot.sent if s["chat_id"] == 999][0]
+    # Public post: no owner buttons, carries the forward-friendly footer.
+    assert channel["reply_markup"] is None
+    assert "Not financial advice" in channel["text"]
+    assert "@marketbrief" in channel["text"]
+    # Owner DM mirror: has the curation buttons.
+    assert owner["reply_markup"] is not None
+
+
+def test_5a_weekly_roundup_format():
+    from mag7bot.pipeline import formatter
+    from mag7bot.schemas import EventType, Materiality, Tier
+
+    evs = [
+        _sample_event(),
+        _sample_event(ticker="AAPL", tickers=["AAPL"], type=EventType.NEWS,
+                      summary="Apple opens a new store", links=[], tier=Tier.WIRE,
+                      materiality=Materiality.LOW, ts=1_700_000_500.0, id=2),
+    ]
+    out = formatter.format_weekly_roundup(evs, 1_700_100_000.0, "@marketbrief")
+    assert "This Week" in out
+    assert "$NVDA" in out and "$AAPL" in out
+    assert "not financial advice" in out.lower()
+    # Quiet week still renders cleanly.
+    assert "quiet week" in formatter.format_weekly_roundup([], 1_700_100_000.0).lower()
+
+
+def test_5b_compliance_no_advice_language():
+    from mag7bot import commands
+    from mag7bot.pipeline import formatter, summarize
+
+    # The summarizer's immutable system prompt bans investment advice.
+    assert "no investment advice" in summarize._SYSTEM.lower()
+    # The pinned disclaimer is explicit that it's not a recommendation.
+    d = commands._DISCLAIMER.lower()
+    assert "not financial advice" in d and "recommendation" in d
+    # Digest + weekly roundup both carry the disclaimer footer.
+    assert "not financial advice" in formatter.format_digest([], ["NVDA"], 1_700_000_000.0).lower()
+
+
+def test_5b_relay_blocked_in_public_mode(cfg):
+    import dataclasses
+
+    from mag7bot import ingest
+
+    now = 1_700_000_000.0
+    pub = dataclasses.replace(cfg, public_mode=True)
+    relay_item = _item("Some macro take from a monitored channel", ticker="NVDA",
+                       source="telegram", url="", ts=now)
+    # The relay is not a commercially-safe source → no event in public mode,
+    # even though the relay calls build_events directly.
+    assert ingest.build_events(pub, [relay_item], now) == []

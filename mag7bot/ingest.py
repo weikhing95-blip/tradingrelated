@@ -149,6 +149,14 @@ def _approved_items(cfg: Config, raw_items: List[RawItem], now: float) -> List[R
         date" is treated as stale and dropped.
       - Other structured feeds keep the lenient rule: drop only a known-old date.
     """
+    # Legal gate (defense-in-depth, 5B-02): in PUBLIC_MODE no item from a source
+    # not licensed for redistribution may become a published event — even via a
+    # caller that bypasses run_cycle's source gate (e.g. the channel relay, which
+    # calls build_events directly). run_cycle already filters at the source level;
+    # this ensures build_events is safe on its own.
+    if cfg.public_mode:
+        raw_items = [it for it in raw_items if is_commercial_safe(it.source)]
+
     news = [it for it in raw_items if it.source in relevance.NEWS_SOURCES]
     structured = [it for it in raw_items if it.source not in relevance.NEWS_SOURCES]
 

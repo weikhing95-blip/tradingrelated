@@ -37,13 +37,14 @@ class ChannelPublisher:
 
     def __init__(
         self, bot, channel_id: str, feedback_enabled: bool = False,
-        owner_id: int = 0, public: bool = False,
+        owner_id: int = 0, public: bool = False, channel_handle: str = "",
     ) -> None:
         self._bot = bot
         self._channel_id = channel_id
         self._feedback_enabled = feedback_enabled
         self._owner_id = owner_id
         self._public = public
+        self._channel_handle = channel_handle
 
     async def _send(self, **kwargs):
         """Send a message, retrying transient network/timeout errors with
@@ -86,10 +87,16 @@ class ChannelPublisher:
 
     async def push(self, event: Event) -> None:
         buttons = self._buttons(event)
-        # Public channel → clean post (no buttons); private → buttons on the post.
+        # Public channel → clean post + forward-friendly footer (no buttons);
+        # private → buttons on the post, no footer.
+        text = format_alert(event)
+        if self._public:
+            from .pipeline.formatter import with_public_footer
+
+            text = with_public_footer(text, self._channel_handle)
         await self._send(
             chat_id=self._channel_id,
-            text=format_alert(event),
+            text=text,
             parse_mode="HTML",
             disable_web_page_preview=True,
             reply_markup=None if self._public else buttons,
