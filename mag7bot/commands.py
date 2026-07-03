@@ -894,6 +894,9 @@ async def cmd_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     flag = "✅" if down_pct < 5 else "⚠️"
     lines.append(f"  👎 rate: {down_pct:.1f}% ({m['downs']}/{m['posts']}) {flag} — target <5%")
     lines.append(f"  Dedup collapse: {m['dedup_collapse_rate'] * 100:.0f}% of contributing items merged")
+    since_day = time.strftime("%Y%m%d", time.gmtime(now - 7 * 86400))
+    sem_calls = db.counter_sum(cfg.db_path, "semantic_calls", since_day)
+    lines.append(f"  Semantic-dedup LLM calls: {sem_calls} (7d, ~{sem_calls / 7:.0f}/day)")
     lines.append("  KPI target: median Tier-1 latency ≤5m · 👎 <5%")
     await update.message.reply_text("\n".join(lines))
 

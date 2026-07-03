@@ -35,6 +35,18 @@ QUIET_END_HOUR = 7
 # Dedup window — collapse same story across sources within this many hours.
 DEDUP_WINDOW_HOURS = 6
 
+# Per-event-type dedup windows (hours). Price-sensitive types are only "the same
+# story" within a tight window (a second 8-K hours later is usually new); slower-
+# moving stories (analyst actions, features, exec commentary) get re-reported by
+# outlets for up to a day, so they collapse over a wider 24h window. Anything not
+# listed falls back to DEDUP_WINDOW_HOURS. (FQ-A1-02)
+DEDUP_WINDOW_BY_TYPE: dict = {
+    "sec_filing": 6, "earnings": 6, "trading_halt": 6, "m&a": 6,
+    "price_move": 6, "macro": 6,
+    "analyst": 24, "news": 24, "exec_commentary": 24, "product_launch": 24,
+    "management_change": 24, "legal_regulatory": 24, "index_listing": 24,
+}
+
 # Recency guard — never surface items older than this (aggregators resurface
 # evergreen listicles/opinion with old publish dates). Tier-1 filings are exempt.
 MAX_ITEM_AGE_HOURS = 24  # default freshness window for news (hours); override via env

@@ -34,8 +34,11 @@ _BASE: dict[EventType, Materiality] = {
     EventType.LEGAL_REGULATORY: Materiality.MATERIAL,
     EventType.MANAGEMENT_CHANGE: Materiality.MATERIAL,
     EventType.INDEX_LISTING: Materiality.MATERIAL,
-    EventType.EXEC_COMMENTARY: Materiality.MATERIAL,
-    EventType.PRODUCT_LAUNCH: Materiality.MATERIAL,  # mega-launches promoted in score()
+    # Headline-focus (FQ-A2-02): generic exec interviews and product launches are
+    # not Tier-1 push material — they go to the daily digest. A *mega* launch
+    # (iPhone/Blackwell/FSD, see score()) is still promoted to CRITICAL.
+    EventType.EXEC_COMMENTARY: Materiality.LOW,
+    EventType.PRODUCT_LAUNCH: Materiality.LOW,
     EventType.ANALYST: Materiality.LOW,  # significant actions promoted in score()
     EventType.NEWS: Materiality.LOW,
 }
@@ -94,11 +97,12 @@ def score(item: RawItem, event_type: EventType) -> Materiality:
     if item.source == "telegram" and event_type == EventType.MACRO:
         return Materiality.MATERIAL
 
-    # Mega product launches override into CRITICAL.
+    # Mega product launches override into CRITICAL; ordinary ones go to the
+    # digest (headline-focus, FQ-A2-02).
     if event_type == EventType.PRODUCT_LAUNCH:
         if any(hint in headline for hint in _MEGA_LAUNCH_HINTS):
             return Materiality.CRITICAL
-        return Materiality.MATERIAL
+        return Materiality.LOW
 
     # Significant analyst actions get promoted to MATERIAL; otherwise LOW.
     if event_type == EventType.ANALYST:

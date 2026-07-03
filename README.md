@@ -18,12 +18,13 @@ noise, no unverifiable claims. Built to the spec in `mag7newsbotprd.md`.
 
 > **Goal:** a **fast, high-signal, source-verified market feed** for a focused
 > watchlist (Mag 7 + MU/PLTR) plus **macro & central banks — US and the major
-> economies (UK/EU/JP)**. Two co-equal pillars: the **speed and density of
-> Walter Bloomberg / SM News**, *and* a **self-curating, low-noise feed tuned to
-> the owner's definition of signal** (it learns what to surface and how to say
-> it). Each alert: `$TICKER`(s) first, a bite-size fact-forward summary (hard
-> numbers when available), a verified `(link)`, and a timestamp — in a consistent
-> house voice. **24/7**, **firehose**, deduped/cross-confirmed. Coverage spans
+> economies (UK/EU/JP)**. The product is **precision on a focused watchlist**, not
+> a firehose: a **curated, low-noise feed tuned to the owner's definition of
+> signal** (it learns what to surface and how to say it), where every post is
+> worth reading. Instant push is reserved for Tier-1 events; everything else rolls
+> into the daily digest. Each alert: `$TICKER`(s) first, a bite-size fact-forward
+> summary (hard numbers when available), a verified `(link)`, and a timestamp — in
+> a consistent house voice. **24/7**, deduped/cross-confirmed. Coverage spans
 > primary + wire — EDGAR, Benzinga/Alpaca, earnings, analyst ratings, trading
 > halts, **unusual price moves**, and a **daily economic-calendar preview** —
 > plus curated-channel relay (Walter/SM/Kobeissi) re-summarised into the house

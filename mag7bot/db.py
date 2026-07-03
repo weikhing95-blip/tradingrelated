@@ -176,6 +176,15 @@ CREATE TABLE IF NOT EXISTS meta (
     value      TEXT NOT NULL DEFAULT '',
     updated_at REAL NOT NULL DEFAULT 0
 );
+
+-- Per-day counters (e.g. daily LLM semantic-dedup call count, so the owner can
+-- watch spend). day = 'YYYYMMDD' UTC; sums over a window feed /metrics.
+CREATE TABLE IF NOT EXISTS counters (
+    name  TEXT NOT NULL,
+    day   TEXT NOT NULL,
+    n     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (name, day)
+);
 """
 
 
@@ -860,6 +869,26 @@ def get_meta(path: Path, key: str) -> Optional[dict]:
             "SELECT value, updated_at FROM meta WHERE key = ?", (key,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def incr_counter(path: Path, name: str, day: str, by: int = 1) -> None:
+    """Add ``by`` to the (name, day) counter, creating it if needed."""
+    with connect(path) as conn:
+        conn.execute(
+            """INSERT INTO counters (name, day, n) VALUES (?, ?, ?)
+               ON CONFLICT(name, day) DO UPDATE SET n = n + excluded.n""",
+            (name, day, by),
+        )
+
+
+def counter_sum(path: Path, name: str, since_day: str) -> int:
+    """Sum a named counter over all days >= since_day ('YYYYMMDD', lexical)."""
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(n), 0) AS n FROM counters WHERE name = ? AND day >= ?",
+            (name, since_day),
+        ).fetchone()
+    return int(row["n"]) if row else 0
 
 
 # --------------------------------------------------------------------------- #

@@ -13,11 +13,18 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
 from . import article, companies, db, soul
-from .config import SGT, SOURCE_ALERT_THRESHOLD, Config, is_commercial_safe
+from .config import (
+    DEDUP_WINDOW_BY_TYPE,
+    SGT,
+    SOURCE_ALERT_THRESHOLD,
+    Config,
+    is_commercial_safe,
+)
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
 from .sources.base import Source
@@ -85,6 +92,23 @@ def in_quiet_hours(cfg: Config, now: float) -> bool:
     return hour >= start or hour < end
 
 
+def effective_feed_volume(cfg: Config) -> str:
+    """The feed volume actually in force. In PUBLIC_MODE, ``firehose`` is clamped
+    to ``moderate`` — a public/commercial channel is a curated headline feed, not
+    a personal firehose (FQ-A2-01). ``firehose`` is only honoured for personal use
+    (PUBLIC_MODE off)."""
+    if cfg.public_mode and cfg.feed_volume == "firehose":
+        return "moderate"
+    return cfg.feed_volume
+
+
+def dedup_window_hours_for(event_type: str, cfg: Config) -> int:
+    """Applicable dedup window (hours) for an event type — tight for price-
+    sensitive types, wide for slow-moving stories (FQ-A1-02). Falls back to the
+    configured DEDUP_WINDOW_HOURS for anything unlisted."""
+    return DEDUP_WINDOW_BY_TYPE.get(event_type, cfg.dedup_window_hours)
+
+
 def should_push_now(cfg: Config, event: Event, now: float) -> bool:
     """Decide whether an event pushes instantly vs waits for the digest.
 
@@ -92,13 +116,15 @@ def should_push_now(cfg: Config, event: Event, now: float) -> bool:
     - moderate: push material/critical only.
     - low: push critical only.
     Muted tickers never push; quiet hours (if enabled) suppress all but critical.
+    In PUBLIC_MODE firehose is clamped to moderate (see effective_feed_volume).
     """
     if db.is_muted(cfg.db_path, cfg.feed_id, event.ticker, now):
         return False
 
-    if cfg.feed_volume == "firehose":
+    volume = effective_feed_volume(cfg)
+    if volume == "firehose":
         pushable = True
-    elif cfg.feed_volume == "low":
+    elif volume == "low":
         pushable = event.materiality == Materiality.CRITICAL
     else:  # moderate
         pushable = event.materiality.is_push
@@ -172,7 +198,7 @@ def _make_event(
     mat = materiality.score(primary, event_type)
     # LLM compression is gated to push items so the digest doesn't cost an API
     # call per line; in firehose mode we summarise minor items too (all pushed).
-    use_llm = mat.is_push or cfg.feed_volume == "firehose"
+    use_llm = mat.is_push or effective_feed_volume(cfg) == "firehose"
     # Anchor the summary on the known company (from the ticker) so the model
     # names it instead of writing "a major data-analytics company".
     subject = (
@@ -226,7 +252,11 @@ def build_events(
     approved = _approved_items(cfg, raw_items, now)
     approved, type_of = _classify_and_enable(cfg, approved)
     groups = dedup.collapse(approved)
-    cutoff = now - cfg.dedup_window_hours * 3600
+    # Widest configured window seeds the candidate pool; each group then narrows
+    # to its own event-type window (FQ-A1-02).
+    max_window_h = max([cfg.dedup_window_hours, *DEDUP_WINDOW_BY_TYPE.values()])
+    cutoff = now - max_window_h * 3600
+    today = time.strftime("%Y%m%d", time.gmtime(now))
 
     # House voice (durable style guide) + recent ✏️ corrections (rotating
     # few-shot examples), both only relevant in LLM mode.
@@ -262,6 +292,10 @@ def build_events(
         ):
             continue
         links = _dedup_links([i.url for i in group])
+        # Applicable dedup window for this event type (tight for price-sensitive,
+        # wide for slow-moving stories). Everything below only considers prior
+        # alerts within this window.
+        type_cutoff = now - dedup_window_hours_for(etype.value, cfg) * 3600
 
         # Same article already alerted under any ticker → merge, don't repost.
         url_dup = _find_url_dup(links, url_to_event)
@@ -270,28 +304,35 @@ def build_events(
             continue
 
         # Same story already alerted for this ticker (paraphrased headline).
-        recent = db.recent_events(cfg.db_path, cfg.feed_id, primary.ticker, cutoff)
+        recent = db.recent_events(cfg.db_path, cfg.feed_id, primary.ticker, type_cutoff)
         existing = dedup.find_existing(primary.headline, primary.ticker, recent)
         if existing and existing.id is not None:
             _merge_links_into(cfg, existing, links)
             continue
 
         # Semantic fallback: a paraphrased re-report from a different outlet (no
-        # shared words or URL) that the lexical checks miss. Only consult the LLM
-        # when there's a same-company recent event to compare against, so it
-        # rarely fires. (LLM mode only.)
+        # shared words or URL) that the lexical checks miss. Runs whenever a client
+        # is available (independent of SUMMARY_MODE — FQ-A1-01); compares the
+        # incoming item against ALL same-ticker alerts still inside the window
+        # (story-level clustering — FQ-A1-03). One cheap Haiku call, only when
+        # there are candidates; the daily call count is logged for cost visibility.
         if cfg.enable_semantic_dedup and client is not None:
             item_tickers = {primary.ticker.upper()} | {
                 t.upper() for t in companies.tickers_in(primary.headline, watchlist)
             }
             cands = [
                 ev for ev in window_events
-                if ev.id is not None and _event_tickers(ev) & item_tickers
+                if ev.id is not None and ev.ts >= type_cutoff
+                and _event_tickers(ev) & item_tickers
             ]
-            sem_dup = dedup.semantic_find(client, primary.headline, cands, cfg.summary_model)
-            if sem_dup and sem_dup.id is not None:
-                _merge_links_into(cfg, sem_dup, links)
-                continue
+            if cands:
+                db.incr_counter(cfg.db_path, "semantic_calls", today)
+                sem_dup = dedup.semantic_find(
+                    client, primary.headline, cands, cfg.summary_model
+                )
+                if sem_dup and sem_dup.id is not None:
+                    _merge_links_into(cfg, sem_dup, links)
+                    continue
 
         event = _make_event(
             cfg, group, type_of[id(primary)], client, examples, style_guide, watchlist
