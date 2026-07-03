@@ -184,4 +184,14 @@ class Event(BaseModel):
         description="Normalised original headline, for cross-cycle dedup. The "
         "summary is a paraphrase, so dedup must match against this, not summary.",
     )
+    # Structured macro fields (GM-B2-01). Populated by the macro sources
+    # (US/JP/CN/EU/UK) and rendered by the unified macro formatter; empty for
+    # non-macro events. A missing consensus renders as actual + prior only —
+    # never a blank or fabricated estimate (GM-B3-03).
+    economy: str = Field(default="", description="ISO country/zone, e.g. 'US','JP','CN','EU','GB'.")
+    indicator: str = Field(default="", description="e.g. 'CPI','GDP','Policy Rate','PMI'.")
+    period: str = Field(default="", description="Reference period, e.g. 'May 2026','Q1'.")
+    actual: str = Field(default="", description="Reported value, pre-formatted.")
+    consensus: str = Field(default="", description="Consensus/estimate, if licensed & available.")
+    prior: str = Field(default="", description="Previous period's value.")
     id: Optional[int] = Field(default=None, description="DB row id once persisted.")

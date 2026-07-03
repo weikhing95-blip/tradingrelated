@@ -227,7 +227,12 @@ def test_classify_structured_and_exec_commentary():
 
 
 def test_materiality_macro_and_exec():
-    assert materiality.score(_item("x", ticker="MACRO", source="macro"), EventType.MACRO) == Materiality.CRITICAL
+    # GM-B2-03: a macro data print pushes (MATERIAL) but doesn't override quiet
+    # hours; a central-bank rate decision is CRITICAL and does.
+    assert materiality.score(_item("x", ticker="MACRO", source="macro"), EventType.MACRO) == Materiality.MATERIAL
+    cb = _item("BoJ holds policy rate", ticker="MACRO", source="macro_jp")
+    cb.payload = {"macro_kind": "central_bank"}
+    assert materiality.score(cb, EventType.MACRO) == Materiality.CRITICAL
     # Headline-focus (FQ-A2-02): generic exec commentary routes to the digest.
     assert materiality.score(_item("x"), EventType.EXEC_COMMENTARY) == Materiality.LOW
 
@@ -2227,3 +2232,82 @@ def test_5b_relay_blocked_in_public_mode(cfg):
     # The relay is not a commercially-safe source → no event in public mode,
     # even though the relay calls build_events directly.
     assert ingest.build_events(pub, [relay_item], now) == []
+
+
+# --------------------------------------------------------------------------- #
+# Work Package B — global macro expansion (schema + sources + formatter)        #
+# --------------------------------------------------------------------------- #
+
+_MACRO_RSS = """<?xml version="1.0"?><rss version="2.0"><channel>
+  <item><title>Monetary Policy: Interest Rate Decision</title><link>https://cb.example/policy</link></item>
+  <item><title>Consumer Price Index (May 2026) rose 3.2%</title><link>https://cb.example/cpi</link></item>
+  <item><title>Governor gives a speech on the outlook</title><link>https://cb.example/speech</link></item>
+</channel></rss>"""
+
+
+def test_gm_b1_macro_source_parse():
+    from mag7bot.sources import macro_common
+    from mag7bot.sources import MacroJapanSource, MacroEuroSource, MacroUKSource, MacroChinaSource
+
+    for src in (MacroJapanSource, MacroEuroSource, MacroUKSource, MacroChinaSource):
+        items = macro_common.parse_macro_rss(
+            _MACRO_RSS, economy=src.economy, source_name=src.name,
+            publisher=src.publisher, cb_hints=src.cb_hints,
+            indicator_map=src.indicator_map, now=1_700_000_000.0,
+        )
+        # Policy statement → central_bank, CPI → data, speech → skipped.
+        assert len(items) == 2, f"{src.name}: {[i.headline for i in items]}"
+        kinds = {i.headline: i.payload["macro_kind"] for i in items}
+        assert kinds["Monetary Policy: Interest Rate Decision"] == "central_bank"
+        cpi = [i for i in items if i.payload["macro"]["indicator"] == "CPI"
+               or i.payload["macro"]["indicator"] == "HICP"][0]
+        assert cpi.payload["macro_kind"] == "data"
+        # Year in "(May 2026)" is not mistaken for the reading; the % is captured.
+        assert cpi.payload["macro"]["actual"] == "3.2%"
+        assert all(i.ticker == "MACRO" and i.payload["macro"]["economy"] == src.economy
+                   for i in items)
+
+
+def test_gm_b2_macro_line_render():
+    from mag7bot.pipeline import formatter
+
+    ev = _sample_event(
+        ticker="MACRO", tickers=["MACRO"], summary="",
+        economy="JP", indicator="CPI", period="May 2026",
+        actual="+3.2% YoY", consensus="+3.0%", prior="+2.9%",
+    )
+    line = formatter.macro_line(ev)
+    assert "🇯🇵" in line and "CPI (May 2026)" in line
+    assert "actual +3.2% YoY vs est +3.0%" in line and "prior +2.9%" in line
+    # Missing consensus → actual + prior only, never a blank "est".
+    ev2 = _sample_event(ticker="MACRO", tickers=["MACRO"], summary="BoJ holds rate at 0.75%",
+                        economy="JP", indicator="Policy Rate", actual="", consensus="", prior="0.75%")
+    line2 = formatter.macro_line(ev2)
+    assert "est" not in line2 and "prior 0.75%" in line2 and "BoJ holds rate" in line2
+
+
+def test_gm_b2_macro_event_end_to_end(cfg):
+    from mag7bot import db, ingest
+    from mag7bot.pipeline import formatter
+    from mag7bot.schemas import RawItem, Tier
+
+    now = 1_700_000_000.0
+    item = RawItem(
+        source="macro_jp", source_item_id="macro_jp:policy-1", ticker="MACRO",
+        tier=Tier.PRIMARY, headline="BoJ raises policy rate to 1.00%",
+        url="https://www.boj.or.jp/x", publisher="Bank of Japan", published_at=now,
+        payload={"macro_kind": "central_bank", "macro": {
+            "economy": "JP", "indicator": "Policy Rate", "period": "",
+            "actual": "1.00%", "consensus": "", "prior": "0.75%"}},
+    )
+    events = ingest.build_events(cfg, [item], now)
+    assert len(events) == 1
+    ev = events[0]
+    # Central-bank decision → CRITICAL; macro fields populated on the Event.
+    assert ev.materiality.value == "critical"
+    assert ev.economy == "JP" and ev.indicator == "Policy Rate" and ev.prior == "0.75%"
+    # Persisted + reloaded with macro fields intact (non-destructive migration).
+    reloaded = db.get_event(cfg.db_path, ev.id)
+    assert reloaded.economy == "JP" and reloaded.actual == "1.00%"
+    # The alert renders the unified macro line with a flag.
+    assert "🇯🇵" in formatter.format_alert(ev)

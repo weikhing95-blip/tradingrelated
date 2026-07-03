@@ -287,7 +287,11 @@ def run_live(cfg: Config) -> None:
         FinnhubSource,
         GoogleNewsSource,
         InsiderSource,
+        MacroChinaSource,
+        MacroEuroSource,
+        MacroJapanSource,
         MacroSource,
+        MacroUKSource,
         PriceMoveSource,
         TradingHaltsSource,
         YahooNewsSource,
@@ -350,6 +354,16 @@ def run_live(cfg: Config) -> None:
             f"📈 Price-move source ENABLED (Yahoo chart; ≥{cfg.price_move_multiplier:g}× "
             f"2-week avg & ≥{cfg.price_move_min_pct:g}% floor)."
         )
+    # International macro sources (GM-B1) — opt-in; commercially-safe.
+    for flag, key, cls, label in (
+        (cfg.enable_macro_jp, "macro_jp", MacroJapanSource, "🇯🇵 Japan macro (BoJ/CPI/GDP)"),
+        (cfg.enable_macro_cn, "macro_cn", MacroChinaSource, "🇨🇳 China macro (NBS/PBoC)"),
+        (cfg.enable_macro_eu, "macro_eu", MacroEuroSource, "🇪🇺 Eurozone macro (ECB/Eurostat)"),
+        (cfg.enable_macro_uk, "macro_uk", MacroUKSource, "🇬🇧 UK macro (BoE/ONS)"),
+    ):
+        if flag:
+            sources[key] = cls()
+            print(f"{label} source ENABLED.")
     # Legal gate (PUBLIC_MODE): hard-exclude every source not licensed for
     # commercial redistribution, in code — before it can be polled or primed.
     # This is the authoritative wiring-time gate; ingest.run_cycle re-applies it

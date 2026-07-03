@@ -36,6 +36,7 @@ from .config import (
     GOOGLE_NEWS_POLL_SECONDS,
     HALTS_POLL_SECONDS,
     INSIDER_POLL_SECONDS,
+    INTL_MACRO_POLL_SECONDS,
     MACRO_POLL_SECONDS,
     PRICEMOVE_POLL_SECONDS,
     RATINGS_POLL_SECONDS,
@@ -132,6 +133,22 @@ async def poll_pricemove(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def poll_alpaca(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _poll(context, "alpaca")
+
+
+async def poll_macro_jp(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "macro_jp")
+
+
+async def poll_macro_cn(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "macro_cn")
+
+
+async def poll_macro_eu(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "macro_eu")
+
+
+async def poll_macro_uk(context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _poll(context, "macro_uk")
 
 
 async def run_research_agent(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -319,6 +336,16 @@ def setup_jobs(application: Application) -> None:
         jq.run_repeating(
             poll_alpaca, interval=ALPACA_POLL_SECONDS, first=130, name="poll_alpaca"
         )
+    # International macro (GM-B1) — infrequent releases, staggered starts.
+    for i, (key, fn) in enumerate((
+        ("macro_jp", poll_macro_jp), ("macro_cn", poll_macro_cn),
+        ("macro_eu", poll_macro_eu), ("macro_uk", poll_macro_uk),
+    )):
+        if key in application.bot_data["sources"]:
+            jq.run_repeating(
+                fn, interval=INTL_MACRO_POLL_SECONDS, first=140 + i * 10,
+                name=f"poll_{key}",
+            )
     if cfg.anthropic_api_key and cfg.enable_research_agent:
         jq.run_repeating(
             run_research_agent,
