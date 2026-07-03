@@ -25,6 +25,7 @@ from . import (
     research,
     soul,
 )
+from .pipeline import formatter
 from .config import (
     is_commercial_safe,
     ALPACA_POLL_SECONDS,
@@ -218,6 +219,25 @@ async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def weekly_roundup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Weekly "what you missed" post: the week's top events by tier, shareable
+    (5A-03). Registered daily; only fires on the configured weekday, so the
+    weekday check is unambiguous regardless of the JobQueue day convention."""
+    from datetime import datetime
+
+    bot_data = context.application.bot_data
+    cfg = bot_data["cfg"]
+    now = time.time()
+    if datetime.fromtimestamp(now, tz=SGT).weekday() != cfg.weekly_roundup_day:
+        return
+    events = db.top_events_since(cfg.db_path, cfg.feed_id, now - 7 * 86400, limit=12)
+    text = formatter.format_weekly_roundup(events, now, cfg.public_channel_handle)
+    try:
+        await bot_data["publisher"].send_digest(text)
+    except Exception as exc:
+        print(f"⚠️  Weekly roundup post failed: {type(exc).__name__}: {exc}")
+
+
 async def econ_calendar_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Daily forward preview of the day's high-impact macro releases (free
     ForexFactory feed). Posts a single digest to the channel; skips quietly if
@@ -335,6 +355,14 @@ def setup_jobs(application: Application) -> None:
         print(f"🗄 Nightly DB backup ENABLED (daily {cfg.backup_time_sgt} SGT → owner DM).")
     if cfg.healthcheck_ping_url:
         print("💓 External healthcheck ping ENABLED (each successful poll cycle).")
+    if cfg.enable_weekly_roundup:
+        wh, wm = int(cfg.weekly_roundup_time_sgt[:2]), int(cfg.weekly_roundup_time_sgt[2:])
+        jq.run_daily(
+            weekly_roundup_job, time=dtime(hour=wh, minute=wm, tzinfo=SGT),
+            name="weekly_roundup",
+        )
+        _dayname = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][cfg.weekly_roundup_day % 7]
+        print(f"🗞 Weekly roundup ENABLED ({_dayname} {cfg.weekly_roundup_time_sgt} SGT).")
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(
         application, hhmm

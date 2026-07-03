@@ -230,9 +230,15 @@ Before sharing the channel publicly:
 3. **`/post_disclaimer`** — posts and pins a "not financial advice" disclaimer
    (the daily digest + calendar also carry a one-line footer). Needs the bot to
    have "Pin Messages" admin rights.
-4. Keep any linked **discussion group** off or moderated, and keep posting
+4. **`PUBLIC_CHANNEL_HANDLE=@yourchannel`** — every public alert then carries a
+   forward-friendly footer (`@yourchannel · ℹ️ Not financial advice`) that
+   survives Telegram forwards, so a reshared post still points home.
+5. Keep any linked **discussion group** off or moderated, and keep posting
    house-style **summaries** (not verbatim source text) to stay clear of data
    providers' redistribution terms.
+
+A weekly **"what you missed"** roundup (`ENABLE_WEEKLY_ROUNDUP`, Sundays) posts
+the week's top events by tier — a shareable recap that doubles as growth content.
 
 ## Observability & health
 

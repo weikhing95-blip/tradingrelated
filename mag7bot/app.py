@@ -305,6 +305,7 @@ def run_live(cfg: Config) -> None:
         feedback_enabled=cfg.enable_feedback_learning,
         owner_id=cfg.owner_user_id,
         public=cfg.public_channel,
+        channel_handle=cfg.public_channel_handle,
     )
     # Live whitelist = config defaults + owner-approved additions (DB).
     whitelist_provider = lambda: ingest.effective_whitelist(cfg)  # noqa: E731

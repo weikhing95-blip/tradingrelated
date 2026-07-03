@@ -123,6 +123,53 @@ def format_alert(event: Event) -> str:
     return "\n".join([head, summary_line, meta_line])
 
 
+def public_footer(handle: str = "") -> str:
+    """Forward-friendly footer for public-channel alerts: a channel handle (so a
+    forwarded post still points home) + a one-line disclaimer. Part of the message
+    text, so it survives Telegram forwards (5A-02)."""
+    tag = f"{_esc(handle)} · " if handle else ""
+    return f"{tag}ℹ️ Not financial advice"
+
+
+def with_public_footer(body: str, handle: str = "") -> str:
+    """Append the public footer to a rendered alert body."""
+    return f"{body}\n\n{public_footer(handle)}"
+
+
+def format_weekly_roundup(events: Iterable[Event], now: float, handle: str = "") -> str:
+    """A shareable weekly "what you missed" post: the week's top events grouped by
+    tier, newest first within each tier (5A-03). ``events`` should already be the
+    pre-selected top-N for the window."""
+    events = list(events)
+    week_end = datetime.fromtimestamp(now, tz=SGT)
+    header = f"🗞 MarketBrief — This Week ({week_end:%d %b %Y})"
+    blocks: List[str] = [header, ""]
+    if not events:
+        blocks.append("A quiet week — no headline events on the watchlist.")
+    else:
+        tier_order = [Tier.PRIMARY, Tier.WIRE, Tier.AGGREGATED]
+        labels = {Tier.PRIMARY: "🔵 Filings & primary", Tier.WIRE: "📰 Wires",
+                  Tier.AGGREGATED: "🟡 Analyst & data"}
+        by_tier: dict = {}
+        for ev in events:
+            by_tier.setdefault(ev.tier, []).append(ev)
+        for tier in tier_order:
+            items = by_tier.get(tier)
+            if not items:
+                continue
+            blocks.append(labels[tier])
+            for ev in sorted(items, key=lambda e: e.ts, reverse=True):
+                head = "MACRO" if (ev.type == EventType.MACRO or ev.ticker.upper() == "MACRO") \
+                    else f"${_esc(ev.ticker.upper())}"
+                link = f"  ·  🔗 {link_html(ev.links[0])}" if ev.links else ""
+                blocks.append(f"  {head} {ev.type.emoji} {_esc(ev.summary)}{link}")
+            blocks.append("")
+    blocks.append("─────────────────")
+    tag = f"{_esc(handle)} · " if handle else ""
+    blocks.append(f"{tag}ℹ️ Informational only — not financial advice.")
+    return "\n".join(blocks).rstrip()
+
+
 # --------------------------------------------------------------------------- #
 # Daily digest                                                                  #
 # --------------------------------------------------------------------------- #
