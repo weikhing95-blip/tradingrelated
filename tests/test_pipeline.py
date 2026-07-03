@@ -925,8 +925,10 @@ class _NamedSource:
         self.tier = Tier.WIRE
         self._items = items or []
         self._boom = boom
+        self.fetch_calls = 0
 
     async def fetch_new(self, tickers, is_seen):
+        self.fetch_calls += 1
         if self._boom:
             raise RuntimeError("api down")
         return self._items
@@ -979,6 +981,44 @@ def test_run_cycle_isolates_failing_source_and_alerts(cfg):
     assert health["yahoo_news"]["consecutive_errors"] == 1
     assert health["finnhub"]["consecutive_errors"] == 0
     assert sum("failing" in m for m in alerts) == 0
+
+
+def test_public_mode_excludes_unsafe_sources(cfg):
+    import asyncio
+    import dataclasses
+
+    from mag7bot import ingest
+    from mag7bot.config import is_commercial_safe
+
+    # Sanity: the classification table matches the launch spec.
+    assert is_commercial_safe("edgar") and is_commercial_safe("macro")
+    assert is_commercial_safe("halts") and is_commercial_safe("pricemove")
+    assert not is_commercial_safe("google_news")
+    assert not is_commercial_safe("yahoo_news")
+    assert not is_commercial_safe("alpaca")
+    assert not is_commercial_safe("finnhub")
+    assert not is_commercial_safe("unknown_future_source")  # fail-safe default
+
+    now = 1_700_000_000.0
+    safe = _NamedSource("edgar", items=[
+        _item("Nvidia files 8-K", url="https://www.sec.gov/x", ts=now)])
+    unsafe = _NamedSource("google_news", items=[
+        _item("Nvidia rumor roundup", url="https://news.google.com/x", ts=now)])
+    pub = _CapturePublisher()
+
+    public_cfg = dataclasses.replace(cfg, public_mode=True)
+    events = asyncio.run(ingest.run_cycle(public_cfg, [safe, unsafe], pub, now, None))
+
+    # The unsafe source is never even fetched in public mode; the safe one runs.
+    assert unsafe.fetch_calls == 0
+    assert safe.fetch_calls == 1
+    assert all(e.source_name != "google_news" for e in events)
+
+    # Outside public mode, both are fetched (no legal gate).
+    safe2 = _NamedSource("edgar")
+    unsafe2 = _NamedSource("google_news")
+    asyncio.run(ingest.run_cycle(cfg, [safe2, unsafe2], pub, now + 1, None))
+    assert unsafe2.fetch_calls == 1 and safe2.fetch_calls == 1
 
 
 def test_source_alert_only_on_sustained_outage_then_recovery(cfg):

@@ -18,6 +18,7 @@ from telegram.ext import Application, ContextTypes
 
 from . import db, economic_calendar, ingest, publisher as publisher_mod, research, soul
 from .config import (
+    is_commercial_safe,
     ALPACA_POLL_SECONDS,
     EARNINGS_POLL_SECONDS,
     EDGAR_POLL_SECONDS,
@@ -258,13 +259,18 @@ def setup_jobs(application: Application) -> None:
             name="soul_review",
         )
         print("🧠 Soul review ENABLED (weekly: distil feedback into the house voice).")
-    if cfg.enable_econ_calendar:
+    # Econ calendar (ForexFactory) is a VERIFY source — not in the commercially-
+    # safe set — so it is hard-disabled in PUBLIC_MODE until its ToS is cleared
+    # (see docs/SOURCE_LICENSES.md).
+    if cfg.enable_econ_calendar and (not cfg.public_mode or is_commercial_safe("econ_calendar")):
         hh, mm = int(cfg.econ_calendar_time_sgt[:2]), int(cfg.econ_calendar_time_sgt[2:])
         jq.run_daily(
             econ_calendar_job, time=dtime(hour=hh, minute=mm, tzinfo=SGT),
             name="econ_calendar",
         )
         print(f"📅 Economic-calendar preview ENABLED (daily {cfg.econ_calendar_time_sgt} SGT).")
+    elif cfg.enable_econ_calendar and cfg.public_mode:
+        print("📅 Economic-calendar preview OFF — disabled in PUBLIC_MODE (source ToS not yet cleared).")
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(
         application, hhmm

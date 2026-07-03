@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence
 
 from . import article, companies, db, soul
-from .config import SGT, SOURCE_ALERT_THRESHOLD, Config
+from .config import SGT, SOURCE_ALERT_THRESHOLD, Config, is_commercial_safe
 from .pipeline import classify, dedup, materiality, relevance, summarize, whitelist
 from .schemas import Event, Materiality, RawItem, SentMode, Tier
 from .sources.base import Source
@@ -356,6 +356,16 @@ async def prime(cfg: Config, sources: Sequence[Source]) -> int:
     return count
 
 
+def public_safe_sources(sources: Sequence[Source], cfg: Config) -> List[Source]:
+    """Legal gate: in PUBLIC_MODE, drop every source not licensed for commercial
+    redistribution — a hard exclusion in code, independent of the per-source
+    ENABLE_* env toggles, so an unlicensed feed can never leak to a public
+    channel. Outside public mode this is a no-op (all configured sources run)."""
+    if not cfg.public_mode:
+        return list(sources)
+    return [s for s in sources if is_commercial_safe(s.name)]
+
+
 async def run_cycle(
     cfg: Config,
     sources: Sequence[Source],
@@ -370,6 +380,9 @@ async def run_cycle(
     cycle or the other sources. Per-source health is recorded, and ``alert`` (if
     given) is called once on an ok→error transition and once on recovery, so the
     owner is told when a feed breaks or comes back — not on every cycle.
+
+    In PUBLIC_MODE, commercially-unsafe sources are excluded here before any
+    fetch (defense-in-depth — they are also not wired in app.py public mode).
     """
     tickers = db.watchlist_tickers(cfg.db_path, cfg.feed_id)
     if not tickers:
@@ -379,7 +392,7 @@ async def run_cycle(
         return db.is_seen(cfg.db_path, source, item_id)
 
     raw: List[RawItem] = []
-    for source in sources:
+    for source in public_safe_sources(sources, cfg):
         try:
             fetched = await source.fetch_new(tickers, _is_seen)
         except Exception as exc:  # isolate: a broken source never kills the cycle
