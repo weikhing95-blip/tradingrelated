@@ -63,6 +63,31 @@ PRICE_MOVE_LOOKBACK_DAYS = 10
 # Large-insider-trade threshold: trades above this value get an instant push.
 INSIDER_THRESHOLD_USD = 1_000_000  # $1M+
 
+# --------------------------------------------------------------------------- #
+# Legal source split (public/commercial mode)                                   #
+# --------------------------------------------------------------------------- #
+# The public product is a broadcast MEDIA product — it may only republish from
+# sources whose licence permits commercial redistribution to third parties.
+# In PUBLIC_MODE every source NOT in this set is hard-excluded IN CODE before any
+# fetch (see ingest.public_safe_sources) — it is a code gate, independent of the
+# per-source ENABLE_* env toggles, so a stray env var can never re-enable an
+# unlicensed feed. The basis for each verdict is documented in
+# docs/SOURCE_LICENSES.md. VERIFY/unclassified sources default to UNSAFE.
+COMMERCIAL_SAFE_SOURCES = frozenset({
+    "edgar",      # SEC filings — US government work, public domain (17 U.S.C. §105)
+    "macro",      # FRED — St. Louis Fed API terms permit redistribution
+    "fed",        # federalreserve.gov RSS — US government work, public domain
+    "halts",      # Nasdaq trading-halts — public factual RSS
+    "pricemove",  # our own computation from raw market data
+})
+
+
+def is_commercial_safe(source_name: str) -> bool:
+    """True only for sources the public product is licensed to redistribute.
+    Unknown/unclassified sources return False — fail-safe: if we haven't verified
+    a source's redistribution terms, it is NOT publishable in public mode."""
+    return source_name in COMMERCIAL_SAFE_SOURCES
+
 # Non-blocking curation learning: after this many distinct 👎 ("not useful")
 # on the same (ticker, event_type), auto-promote a suppression rule.
 FEEDBACK_SUPPRESS_THRESHOLD = 1
@@ -160,6 +185,7 @@ class Config:
     enable_feedback_learning: bool = True  # 👎 feedback buttons + learned suppression rules
     enable_semantic_dedup: bool = True  # LLM check for paraphrased dupes (llm mode; gated, cheap)
     public_channel: bool = False  # True → keep curation buttons off public posts (mirror to owner DM)
+    public_mode: bool = False  # True → hard-exclude commercially-unsafe sources in code (legal gate)
     enable_econ_calendar: bool = True   # daily forward macro-calendar preview (free)
     econ_calendar_time_sgt: str = "0700"  # when to post the daily macro preview (SGT)
     econ_calendar_currencies: tuple = ("USD", "EUR", "GBP", "JPY", "CNY")
@@ -257,6 +283,7 @@ def load_config(dry_run: bool = False) -> Config:
     enable_feedback_learning = os.environ.get("ENABLE_FEEDBACK_LEARNING", "true").strip().lower() not in _falsy
     enable_semantic_dedup = os.environ.get("ENABLE_SEMANTIC_DEDUP", "true").strip().lower() not in _falsy
     public_channel = os.environ.get("PUBLIC_CHANNEL", "").strip().lower() in _truthy
+    public_mode = os.environ.get("PUBLIC_MODE", "").strip().lower() in _truthy
     enable_econ_calendar = os.environ.get("ENABLE_ECON_CALENDAR", "true").strip().lower() not in _falsy
     econ_calendar_time_sgt = (os.environ.get("ECON_CALENDAR_TIME_SGT", "0700").strip() or "0700")
     _ccy_raw = os.environ.get("ECON_CALENDAR_CURRENCIES", "USD,EUR,GBP,JPY,CNY")
@@ -327,6 +354,7 @@ def load_config(dry_run: bool = False) -> Config:
         enable_feedback_learning=enable_feedback_learning,
         enable_semantic_dedup=enable_semantic_dedup,
         public_channel=public_channel,
+        public_mode=public_mode,
         enable_econ_calendar=enable_econ_calendar,
         econ_calendar_time_sgt=econ_calendar_time_sgt,
         econ_calendar_currencies=econ_calendar_currencies,

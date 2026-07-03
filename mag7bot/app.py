@@ -58,7 +58,15 @@ async def _dry_run(cfg: Config) -> None:
     pub = publisher_mod.StdoutPublisher()
 
     print(f"Dry run — summary_mode={cfg.summary_mode}, db={cfg.db_path}")
-    events = ingest.build_events(cfg, fixtures.sample_raw_items(now), now, client)
+    raw = fixtures.sample_raw_items(now)
+    if cfg.public_mode:
+        from .config import is_commercial_safe
+
+        before = len(raw)
+        raw = [it for it in raw if is_commercial_safe(it.source)]
+        kept = sorted({it.source for it in raw})
+        print(f"🛡  PUBLIC_MODE ON — {before - len(raw)} unsafe-source item(s) filtered; publishing only from {kept}.")
+    events = ingest.build_events(cfg, raw, now, client)
 
     for event in events:
         if event.id is not None and ingest.should_push_now(cfg, event, now):
@@ -200,8 +208,12 @@ async def _post_init(application) -> None:
         )
 
     # Start Telegram channel monitor if credentials are configured. Any failure
-    # here must NOT take the bot down, so it's fully guarded.
-    if cfg.telegram_api_id and cfg.telegram_api_hash:
+    # here must NOT take the bot down, so it's fully guarded. In PUBLIC_MODE the
+    # relay is hard-disabled — republishing another channel's curation is not a
+    # commercially-safe source (see docs/SOURCE_LICENSES.md).
+    if cfg.public_mode:
+        print("📡 Telegram channel monitor OFF — disabled in PUBLIC_MODE (relay is not a licensed source).")
+    elif cfg.telegram_api_id and cfg.telegram_api_hash:
         try:
             from .telegram_monitor import TelegramChannelMonitor
 
@@ -328,6 +340,19 @@ def run_live(cfg: Config) -> None:
             f"📈 Price-move source ENABLED (Yahoo chart; ≥{cfg.price_move_multiplier:g}× "
             f"2-week avg & ≥{cfg.price_move_min_pct:g}% floor)."
         )
+    # Legal gate (PUBLIC_MODE): hard-exclude every source not licensed for
+    # commercial redistribution, in code — before it can be polled or primed.
+    # This is the authoritative wiring-time gate; ingest.run_cycle re-applies it
+    # as defense-in-depth. See docs/SOURCE_LICENSES.md for the per-source basis.
+    if cfg.public_mode:
+        from .config import is_commercial_safe
+
+        safe = {n: s for n, s in sources.items() if is_commercial_safe(n)}
+        excluded = sorted(set(sources) - set(safe))
+        sources = safe
+        print(f"🛡  PUBLIC_MODE ON — publishing only from commercially-safe sources: {sorted(sources)}")
+        for name in excluded:
+            print(f"🚫 PUBLIC_MODE — source '{name}' DISABLED (not licensed for public redistribution).")
     application.bot_data["sources"] = sources
 
     commands.register(application)
