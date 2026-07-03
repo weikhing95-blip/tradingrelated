@@ -956,6 +956,60 @@ def test_source_health_error_then_recovery(cfg):
     assert health["finnhub"]["last_count"] == 3
 
 
+def test_meta_kv_roundtrip(cfg):
+    from mag7bot import db
+
+    assert db.get_meta(cfg.db_path, "last_backup") is None
+    db.set_meta(cfg.db_path, "last_backup", "1700000000", 1700000000.0)
+    got = db.get_meta(cfg.db_path, "last_backup")
+    assert got and got["value"] == "1700000000"
+    db.set_meta(cfg.db_path, "last_backup", "1700000100", 1700000100.0)  # upsert
+    assert db.get_meta(cfg.db_path, "last_backup")["value"] == "1700000100"
+
+
+def test_metrics_record_and_summary(cfg):
+    from mag7bot import db
+
+    now = 1_700_000_000.0
+    # Two tier1 events posted 60s / 120s after their source publish time; one
+    # wire event with an unknown source time (latency NULL, excluded from median).
+    db.record_metric(cfg.db_path, 1, "edgar", "tier1", "sec_filing", now - 60, now)
+    db.record_metric(cfg.db_path, 2, "halts", "tier1", "halt", now - 120, now)
+    db.record_metric(cfg.db_path, 3, "google_news", "wire", "news", None, now)
+    # One 👎 on event 1.
+    db.record_feedback(cfg.db_path, 1, "AAPL", "edgar", "sec_filing", "down", now)
+
+    m = db.metrics_summary(cfg.db_path, now - 7 * 86400, now, cfg.feed_id)
+    assert m["posts"] == 3
+    assert m["median_latency_sec"] == 90.0            # median of 60s, 120s
+    assert m["median_latency_by_tier_sec"]["tier1"] == 90.0
+    assert m["downs"] == 1 and m["down_rate"] == round(1 / 3, 3)
+    assert 0.0 <= m["dedup_collapse_rate"] <= 1.0
+
+
+def test_backup_and_restore_roundtrip(cfg, tmp_path):
+    import gzip
+    import sqlite3
+
+    from mag7bot import backup, db
+
+    db.mark_seen(cfg.db_path, "edgar", "item-1", "AAPL")
+    db.mark_seen(cfg.db_path, "edgar", "item-2", "MSFT")
+
+    gz = backup.create_backup(cfg.db_path, dest_dir=tmp_path, now=1_700_000_000.0)
+    assert gz.exists() and gz.name.endswith(".db.gz")
+
+    restored = tmp_path / "restored.db"
+    with gzip.open(gz, "rb") as f_in, open(restored, "wb") as f_out:
+        f_out.write(f_in.read())
+    conn = sqlite3.connect(restored)
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM seen").fetchone()[0]
+    finally:
+        conn.close()
+    assert n == 2  # `seen` survives the backup → no duplicate-flood on restore
+
+
 def test_run_cycle_isolates_failing_source_and_alerts(cfg):
     import asyncio
 

@@ -836,12 +836,21 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             return f"{mins // 60}h ago"
         return f"{mins // 1440}d ago"
 
+    mode = "🛡 public (safe sources only)" if cfg.public_mode else "🔓 personal (all sources)"
     lines = [
         "📊 MarketBrief Status (last 24h)",
+        f"  Mode: {mode}",
         f"  Events: {s['total']} total · {s['pushes']} pushed · {s['digest']} digest",
         f"  Last push: {last}",
         f"  Watching: {len(tickers)} ticker(s) · {len(sources)} source(s) active",
     ]
+
+    # Reliability (Phase 3): last backup + last external healthcheck ping.
+    bk = db.get_meta(cfg.db_path, "last_backup")
+    hc = db.get_meta(cfg.db_path, "last_healthcheck")
+    lines.append(f"  Last backup: {_age(float(bk['value'])) if bk else ('off' if not cfg.enable_backup else 'pending')}")
+    if cfg.healthcheck_ping_url:
+        lines.append(f"  Healthcheck ping: {_age(float(hc['value'])) if hc else 'pending'}")
 
     # Relay monitor liveness.
     task = context.application.bot_data.get("monitor_task")
@@ -862,6 +871,33 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text("\n".join(lines))
 
 
+async def cmd_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """7-day launch KPIs: median latency by tier, posts/day, 👎 rate, dedup rate."""
+    cfg = _cfg(context)
+    now = time.time()
+    m = db.metrics_summary(cfg.db_path, now - 7 * 86400, now, cfg.feed_id)
+
+    def _lat(sec):
+        if sec is None:
+            return "n/a"
+        return f"{sec:.0f}s" if sec < 90 else f"{sec / 60:.1f}m"
+
+    lines = [
+        "📈 Metrics (last 7 days)",
+        f"  Posts: {m['posts']} total · {m['posts_per_day']:.1f}/day",
+        f"  Median latency: {_lat(m['median_latency_sec'])} (publish → post)",
+    ]
+    by_tier = m["median_latency_by_tier_sec"]
+    if by_tier:
+        lines.append("  By tier: " + " · ".join(f"{t} {_lat(v)}" for t, v in by_tier.items()))
+    down_pct = m["down_rate"] * 100
+    flag = "✅" if down_pct < 5 else "⚠️"
+    lines.append(f"  👎 rate: {down_pct:.1f}% ({m['downs']}/{m['posts']}) {flag} — target <5%")
+    lines.append(f"  Dedup collapse: {m['dedup_collapse_rate'] * 100:.0f}% of contributing items merged")
+    lines.append("  KPI target: median Tier-1 latency ≤5m · 👎 <5%")
+    await update.message.reply_text("\n".join(lines))
+
+
 def register(application: Application) -> None:
     """Attach all command handlers to the application."""
     handlers = {
@@ -876,6 +912,7 @@ def register(application: Application) -> None:
         "sources": cmd_sources,
         "show": cmd_show,
         "status": cmd_status,
+        "metrics": cmd_metrics,
         "test": cmd_test,
         "diag": cmd_diag,
         "suggest_sources": cmd_suggest_sources,
