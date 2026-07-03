@@ -242,7 +242,21 @@ def _make_event(
         # Store the normalised headline (not the summary) so a later cycle can
         # match a paraphrased re-report of this same story and skip reposting.
         dedup_key=dedup.normalize(primary.headline, primary.ticker),
+        # Structured macro fields (GM-B2-01), if the source supplied them.
+        **_macro_fields(primary),
     )
+
+
+def _macro_fields(item: RawItem) -> dict:
+    """Extract the structured macro fields a macro source stashed in its payload,
+    for the unified macro render. Empty for non-macro items."""
+    m = item.payload.get("macro") if isinstance(item.payload, dict) else None
+    if not isinstance(m, dict):
+        return {}
+    return {
+        k: str(m.get(k, "") or "")
+        for k in ("economy", "indicator", "period", "actual", "consensus", "prior")
+    }
 
 
 def build_events(

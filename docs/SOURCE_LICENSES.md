@@ -145,6 +145,30 @@ The Alpaca News API is explicitly positioned for showing news **in-app to an app
 
 ---
 
+## Consensus / estimate data for macro alerts (GM-B3-01) — DRAFT, owner sign-off required
+
+The unified macro render (`{actual} vs est {consensus} · prior`) needs a
+**consensus estimate**, which government releases do not provide. The candidate
+free source is the **ForexFactory** weekly calendar's forecast column.
+
+**Verdict: UNSAFE** for the public/commercial channel — the same basis as the
+ForexFactory calendar row above (no official API; ToS bars using the content
+without permission; the consensus/forecast column is part of ForexFactory's
+protected compilation). Do **not** back the `consensus` field from ForexFactory
+for the public product.
+
+**Fallback (implemented, GM-B3-03):** when no licensed consensus is available the
+alert renders **actual + prior only** — never a blank slot and never a fabricated
+estimate. The macro sources leave `consensus` empty; the formatter degrades
+gracefully.
+
+**Licensed options (COGS input for Phase 6), behind the `consensus.py` provider seam (GM-B3-02):**
+- **TradingEconomics API** — calendar w/ consensus; redistribution priced into the plan (custom quote). `https://tradingeconomics.com/api/pricing.aspx`
+- **Financial Modeling Prep** — economic-calendar w/ estimates from ~$100/mo, **plus** a Data Display & Licensing Agreement for redistribution. `https://site.financialmodelingprep.com/developer/docs/pricing`
+
+**Owner action:** approve keeping consensus **empty** for launch (actual+prior
+only), or authorise budget for a licensed calendar provider.
+
 ## Open action items before public launch
 
 1. **Capture verbatim primary clauses** (screenshots + date) for Finnhub `/terms`, ForexFactory notices/terms, Yahoo ToS, Alpaca support + EULA, Benzinga licensing terms — the gateway blocked direct retrieval during this review.

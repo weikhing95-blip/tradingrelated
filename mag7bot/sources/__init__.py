@@ -19,6 +19,10 @@ from .google_news import GoogleNewsSource
 from .halts import TradingHaltsSource
 from .insider import InsiderSource
 from .macro import MacroSource
+from .macro_cn import MacroChinaSource
+from .macro_eu import MacroEuroSource
+from .macro_jp import MacroJapanSource
+from .macro_uk import MacroUKSource
 from .pricemove import PriceMoveSource
 from .ratings import AnalystRatingsSource
 from .yahoo_news import YahooNewsSource
@@ -34,6 +38,10 @@ __all__ = [
     "GoogleNewsSource",
     "InsiderSource",
     "MacroSource",
+    "MacroChinaSource",
+    "MacroEuroSource",
+    "MacroJapanSource",
+    "MacroUKSource",
     "PriceMoveSource",
     "TradingHaltsSource",
     "YahooNewsSource",

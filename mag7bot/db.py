@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS events (
     sent_mode       TEXT NOT NULL DEFAULT 'pending',
     ts              REAL NOT NULL,
     dedup_key       TEXT NOT NULL DEFAULT '',  -- normalised headline, for dedup
-    tickers         TEXT NOT NULL DEFAULT '[]'  -- JSON: all watchlist tickers in the story
+    tickers         TEXT NOT NULL DEFAULT '[]', -- JSON: all watchlist tickers in the story
+    macro           TEXT NOT NULL DEFAULT '{}'  -- JSON: structured macro fields (GM-B2-01)
 );
 CREATE INDEX IF NOT EXISTS idx_events_ticker_ts ON events (ticker, ts);
 CREATE INDEX IF NOT EXISTS idx_events_sentmode ON events (sent_mode);
@@ -217,6 +218,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE events ADD COLUMN dedup_key TEXT NOT NULL DEFAULT ''")
     if "tickers" not in cols:
         conn.execute("ALTER TABLE events ADD COLUMN tickers TEXT NOT NULL DEFAULT '[]'")
+    if "macro" not in cols:
+        conn.execute("ALTER TABLE events ADD COLUMN macro TEXT NOT NULL DEFAULT '{}'")
 
 
 # --------------------------------------------------------------------------- #
@@ -426,6 +429,7 @@ def insert_raw_item(path: Path, item: RawItem) -> int:
 
 def _row_to_event(row: sqlite3.Row) -> Event:
     keys = row.keys()
+    macro = json.loads(row["macro"]) if "macro" in keys and row["macro"] else {}
     return Event(
         id=row["id"],
         ticker=row["ticker"],
@@ -440,7 +444,13 @@ def _row_to_event(row: sqlite3.Row) -> Event:
         unconfirmed=bool(row["unconfirmed"]),
         sent_mode=SentMode(row["sent_mode"]),
         ts=row["ts"],
-        dedup_key=(row["dedup_key"] if "dedup_key" in row.keys() else ""),
+        dedup_key=(row["dedup_key"] if "dedup_key" in keys else ""),
+        economy=macro.get("economy", ""),
+        indicator=macro.get("indicator", ""),
+        period=macro.get("period", ""),
+        actual=macro.get("actual", ""),
+        consensus=macro.get("consensus", ""),
+        prior=macro.get("prior", ""),
     )
 
 
@@ -450,8 +460,8 @@ def insert_event(path: Path, feed_id: int, event: Event) -> int:
             """INSERT INTO events
                    (feed_id, ticker, type, summary, links, tier, source_name,
                     materiality, confirmed_count, unconfirmed, sent_mode, ts,
-                    dedup_key, tickers)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    dedup_key, tickers, macro)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 feed_id,
                 event.ticker,
@@ -467,6 +477,11 @@ def insert_event(path: Path, feed_id: int, event: Event) -> int:
                 event.ts,
                 event.dedup_key,
                 json.dumps(event.tickers or [event.ticker]),
+                json.dumps({
+                    "economy": event.economy, "indicator": event.indicator,
+                    "period": event.period, "actual": event.actual,
+                    "consensus": event.consensus, "prior": event.prior,
+                }),
             ),
         )
         return int(cur.lastrowid)

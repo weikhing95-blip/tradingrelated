@@ -126,6 +126,15 @@ Beyond per-company news, the bot covers what moves these names:
   new release, e.g. `📊 US Core CPI (May 2026) — +0.3% MoM, +3.2% YoY`. These are
   economy-wide (no ticker), Tier 1, treated as critical (instant push). Off
   until `FRED_API_KEY` is set (free from fredaccount.stlouisfed.org).
+- **International macro (`ENABLE_MACRO_JP/CN/EU/UK`, opt-in, free):** actual
+  *release* alerts (not just calendar previews) from **Japan** (BoJ + CPI/GDP),
+  **China** (NBS CPI/PPI/PMI/GDP + PBoC LPR), **Eurozone** (ECB + Eurostat), and
+  **UK** (BoE + ONS). All are commercially-safe government/central-bank feeds
+  (publish under `PUBLIC_MODE`). Rendered in one unified format —
+  `🇯🇵 JP · CPI (May 2026) — actual +3.2% YoY · prior +2.9%`; **central-bank rate
+  decisions are critical** (override quiet hours), data prints are material. A
+  consensus estimate is shown only when a licensed calendar is contracted (see
+  `docs/SOURCE_LICENSES.md`); otherwise actual + prior only, never a guess.
 - **Economic-calendar preview (`ENABLE_ECON_CALENDAR`, free):** a once-a-day
   forward heads-up of the day's **high-impact** macro releases with consensus +
   previous, e.g. `🇬🇧 GBP · GDP (QoQ, Q1) — 🕒 09:00 SGT / prev 0.2% · est 0.6%`.

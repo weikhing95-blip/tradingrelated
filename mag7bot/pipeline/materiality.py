@@ -92,9 +92,12 @@ def score(item: RawItem, event_type: EventType) -> Materiality:
     # the actual print — it shouldn't override quiet hours.
     if item.source == "earnings" and item.payload.get("preview"):
         return Materiality.MATERIAL
-    # Macro/Fed relayed from a monitored channel is commentary, not an official
-    # release — material (push), but not CRITICAL like a real CPI/PCE print.
-    if item.source == "telegram" and event_type == EventType.MACRO:
+    # Macro routing (GM-B2-03): a central-bank rate decision (Fed/BoJ/PBoC/ECB/BoE)
+    # is CRITICAL and overrides quiet hours; a data print (CPI/GDP/PMI) and relayed
+    # macro commentary push instantly but do NOT override quiet hours (MATERIAL).
+    if event_type == EventType.MACRO:
+        if (item.payload.get("macro_kind") or "").lower() == "central_bank":
+            return Materiality.CRITICAL
         return Materiality.MATERIAL
 
     # Mega product launches override into CRITICAL; ordinary ones go to the

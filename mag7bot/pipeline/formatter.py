@@ -31,6 +31,36 @@ from ..schemas import Event, EventType, Materiality, Tier
 # US market hours, used for the optional "pre-mkt"/"after-hrs" tag on alerts.
 _ET = ZoneInfo("America/New_York")
 
+# Country/zone → flag for the unified macro line (GM-B2-02).
+_COUNTRY_FLAGS = {
+    "US": "🇺🇸", "JP": "🇯🇵", "CN": "🇨🇳", "EU": "🇪🇺", "GB": "🇬🇧", "UK": "🇬🇧",
+}
+
+
+def macro_line(ev: Event) -> str:
+    """Unified macro render (GM-B2-02):
+        {flag} {lead} — actual {a}[ vs est {c}] · prior {p}
+    ``lead`` is the event's context sentence when present, else
+    ``ECONOMY · indicator (period)``. A missing consensus is omitted — never a
+    blank or fabricated estimate (GM-B3-03)."""
+    flag = _COUNTRY_FLAGS.get((ev.economy or "").upper(), "")
+    if ev.summary:
+        lead = _esc(ev.summary)
+    else:
+        lead = " · ".join(x for x in [(ev.economy or "").upper(), _esc(ev.indicator)] if x)
+        if ev.period:
+            lead += f" ({_esc(ev.period)})"
+    metrics: List[str] = []
+    if ev.actual:
+        seg = f"actual {_esc(ev.actual)}"
+        if ev.consensus:
+            seg += f" vs est {_esc(ev.consensus)}"
+        metrics.append(seg)
+    if ev.prior:
+        metrics.append(f"prior {_esc(ev.prior)}")
+    body = lead + (" — " + " · ".join(metrics) if metrics else "")
+    return f"{flag} {body}".strip() if flag else body
+
 
 def _esc(text: str) -> str:
     """Escape visible text for Telegram HTML (leave quotes as-is)."""
@@ -99,8 +129,11 @@ def format_alert(event: Event) -> str:
             tickers = [event.ticker.upper()]
         head = " · ".join(f"${_esc(t)}" for t in tickers[:4])
 
-    # ── Line 2: bite-size summary ──────────────────────────────────────────
-    summary_line = _esc(event.summary)
+    # ── Line 2: bite-size summary (or unified macro line for macro events) ──
+    if event.economy or event.indicator:
+        summary_line = macro_line(event)
+    else:
+        summary_line = _esc(event.summary)
 
     # ── Line 3: link(s) + status + timestamp (one condensed line) ─────────
     parts: List[str] = []

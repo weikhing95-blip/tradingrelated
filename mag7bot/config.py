@@ -64,6 +64,7 @@ HALTS_POLL_SECONDS = 60      # Nasdaq trading-halts RSS (free; time-critical)
 RATINGS_POLL_SECONDS = 600   # Finnhub analyst upgrade/downgrade feed
 ALPACA_POLL_SECONDS = 120    # Alpaca (Benzinga) real-time news — full article bodies
 PRICEMOVE_POLL_SECONDS = 300  # Yahoo chart API — unusual intraday-move check
+INTL_MACRO_POLL_SECONDS = 1800  # JP/CN/EU/UK macro RSS (releases are infrequent)
 
 # Unusual price-move detector defaults. Flag when |move on the day| is at least
 # MULTIPLIER × the trailing 2-week average daily move AND clears the MIN_PCT
@@ -91,6 +92,10 @@ COMMERCIAL_SAFE_SOURCES = frozenset({
     "fed",        # federalreserve.gov RSS — US government work, public domain
     "halts",      # Nasdaq trading-halts — public factual RSS
     "pricemove",  # our own computation from raw market data
+    "macro_jp",   # Bank of Japan / e-Stat — government/central-bank public records
+    "macro_cn",   # China NBS / PBoC — government/central-bank public records
+    "macro_eu",   # ECB / Eurostat — EU institutional public records
+    "macro_uk",   # Bank of England / ONS — UK institutional public records
 })
 
 
@@ -202,6 +207,12 @@ class Config:
     enable_weekly_roundup: bool = True  # weekly "what you missed" post (top events by tier)
     weekly_roundup_time_sgt: str = "1800"  # when to post the weekly roundup (HHMM, SGT)
     weekly_roundup_day: int = 6  # weekday to post it (Mon=0 … Sun=6)
+    # International macro sources (GM-B1) — opt-in (live feed shapes validated
+    # during operation); all commercially-safe government/central-bank records.
+    enable_macro_jp: bool = False       # Bank of Japan + CPI/GDP
+    enable_macro_cn: bool = False       # China NBS + PBoC
+    enable_macro_eu: bool = False       # ECB + Eurostat
+    enable_macro_uk: bool = False       # Bank of England + ONS
     enable_econ_calendar: bool = True   # daily forward macro-calendar preview (free)
     econ_calendar_time_sgt: str = "0700"  # when to post the daily macro preview (SGT)
     econ_calendar_currencies: tuple = ("USD", "EUR", "GBP", "JPY", "CNY")
@@ -305,6 +316,10 @@ def load_config(dry_run: bool = False) -> Config:
     enable_semantic_dedup = os.environ.get("ENABLE_SEMANTIC_DEDUP", "true").strip().lower() not in _falsy
     public_channel = os.environ.get("PUBLIC_CHANNEL", "").strip().lower() in _truthy
     public_mode = os.environ.get("PUBLIC_MODE", "").strip().lower() in _truthy
+    enable_macro_jp = os.environ.get("ENABLE_MACRO_JP", "").strip().lower() in _truthy
+    enable_macro_cn = os.environ.get("ENABLE_MACRO_CN", "").strip().lower() in _truthy
+    enable_macro_eu = os.environ.get("ENABLE_MACRO_EU", "").strip().lower() in _truthy
+    enable_macro_uk = os.environ.get("ENABLE_MACRO_UK", "").strip().lower() in _truthy
     public_channel_handle = os.environ.get("PUBLIC_CHANNEL_HANDLE", "").strip()
     enable_weekly_roundup = os.environ.get("ENABLE_WEEKLY_ROUNDUP", "true").strip().lower() not in _falsy
     weekly_roundup_time_sgt = (os.environ.get("WEEKLY_ROUNDUP_TIME_SGT", "1800").strip() or "1800")
@@ -382,6 +397,10 @@ def load_config(dry_run: bool = False) -> Config:
         enable_semantic_dedup=enable_semantic_dedup,
         public_channel=public_channel,
         public_mode=public_mode,
+        enable_macro_jp=enable_macro_jp,
+        enable_macro_cn=enable_macro_cn,
+        enable_macro_eu=enable_macro_eu,
+        enable_macro_uk=enable_macro_uk,
         public_channel_handle=public_channel_handle,
         enable_weekly_roundup=enable_weekly_roundup,
         weekly_roundup_time_sgt=weekly_roundup_time_sgt,
