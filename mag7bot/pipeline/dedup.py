@@ -94,7 +94,9 @@ def semantic_find(client, headline: str, candidates: List[Event], model: str) ->
     outlet)? Returns the matching Event or None. One cheap call; the caller only
     invokes this when there's a plausible (same-company) candidate, so it rarely
     fires. Any error → None (fall through to posting)."""
-    cands = [ev for ev in candidates if ev.id is not None][:8]
+    # Compare against the whole same-ticker cluster in the window (capped for
+    # cost; a single ticker rarely has this many distinct live stories).
+    cands = [ev for ev in candidates if ev.id is not None][:12]
     if not cands or client is None:
         return None
     from pydantic import BaseModel, Field

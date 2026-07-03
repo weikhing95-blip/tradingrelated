@@ -228,7 +228,8 @@ def test_classify_structured_and_exec_commentary():
 
 def test_materiality_macro_and_exec():
     assert materiality.score(_item("x", ticker="MACRO", source="macro"), EventType.MACRO) == Materiality.CRITICAL
-    assert materiality.score(_item("x"), EventType.EXEC_COMMENTARY) == Materiality.MATERIAL
+    # Headline-focus (FQ-A2-02): generic exec commentary routes to the digest.
+    assert materiality.score(_item("x"), EventType.EXEC_COMMENTARY) == Materiality.LOW
 
 
 def test_earnings_parser_beat_miss():
@@ -2014,3 +2015,122 @@ def test_publisher_public_moves_buttons_to_owner_dm():
 def test_digest_carries_disclaimer_footer():
     out = formatter.format_digest([], ["NVDA"], 1_700_000_000.0)
     assert "not financial advice" in out
+
+
+# --------------------------------------------------------------------------- #
+# Work Package A — feed quality (dedup overhaul + noise reduction)              #
+# --------------------------------------------------------------------------- #
+
+
+class _FakeSemanticClient:
+    """Stub Anthropic client for semantic dedup: always says the NEW item is a
+    duplicate of the FIRST prior candidate in the prompt."""
+
+    def __init__(self):
+        self.calls = 0
+        self.messages = self
+
+    def parse(self, **kwargs):
+        import re as _re
+
+        self.calls += 1
+        content = kwargs["messages"][0]["content"]
+        m = _re.search(r"PRIOR items:\n\[(\d+)\]", content)
+        dup = int(m.group(1)) if m else None
+
+        class _P:
+            duplicate_of = dup
+
+        class _R:
+            parsed_output = _P()
+
+        return _R()
+
+
+def test_fq_a1_02_dedup_window_by_type(cfg):
+    from mag7bot import ingest
+
+    # Price-sensitive types: tight 6h window; slow-moving stories: 24h.
+    assert ingest.dedup_window_hours_for("sec_filing", cfg) == 6
+    assert ingest.dedup_window_hours_for("earnings", cfg) == 6
+    assert ingest.dedup_window_hours_for("trading_halt", cfg) == 6
+    assert ingest.dedup_window_hours_for("analyst", cfg) == 24
+    assert ingest.dedup_window_hours_for("news", cfg) == 24
+    assert ingest.dedup_window_hours_for("exec_commentary", cfg) == 24
+    # Unlisted → fall back to the configured default.
+    assert ingest.dedup_window_hours_for("mystery_type", cfg) == cfg.dedup_window_hours
+
+
+def test_fq_a1_05_five_rewrites_collapse_to_one(cfg):
+    """5 rewrites of one story from 5 outlets (distinct URLs, minimal shared
+    wording) → exactly 1 event, cross-confirmed (5)."""
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    client = _FakeSemanticClient()
+    headlines = [
+        "Nvidia agrees to acquire Run:ai",
+        "Nvidia buys AI orchestration startup in major deal",
+        "Nvidia snaps up compute-scheduling company",
+        "Nvidia completes purchase of Israeli tech firm",
+        "Nvidia expands with an acquisition announced today",
+    ]
+    for i, h in enumerate(headlines):
+        item = _item(h, ticker="NVDA", source="finnhub", publisher="Reuters",
+                     url=f"https://www.reuters.com/story-{i}", ts=now)
+        ingest.build_events(cfg, [item], now + i, client)
+
+    rows = db.recent_events(cfg.db_path, cfg.feed_id, "NVDA", now - 86400)
+    assert len(rows) == 1, f"expected 1 merged event, got {len(rows)}"
+    assert rows[0].confirmed_count == 5
+    assert client.calls >= 4  # items 2..5 each triggered one semantic check
+
+
+def test_fq_a2_01_public_mode_clamps_firehose(cfg):
+    import dataclasses
+
+    from mag7bot import ingest
+
+    fire = dataclasses.replace(cfg, feed_volume="firehose", public_mode=False)
+    assert ingest.effective_feed_volume(fire) == "firehose"
+    # In public mode, firehose is clamped to moderate.
+    pub = dataclasses.replace(cfg, feed_volume="firehose", public_mode=True)
+    assert ingest.effective_feed_volume(pub) == "moderate"
+    # A non-firehose volume is unaffected by public mode.
+    mod = dataclasses.replace(cfg, feed_volume="moderate", public_mode=True)
+    assert ingest.effective_feed_volume(mod) == "moderate"
+
+
+def test_fq_a2_02_routing_tightened():
+    from mag7bot.pipeline import materiality
+    from mag7bot.schemas import EventType, Materiality
+
+    def _mat(headline, etype, source="finnhub", **payload):
+        it = _item(headline, ticker="AAPL", source=source)
+        if payload:
+            it.payload = payload
+        return materiality.score(it, etype)
+
+    # Tier-1 pushes.
+    assert _mat("Apple files 8-K", EventType.SEC_FILING).is_push
+    assert _mat("Apple Q3 results", EventType.EARNINGS).is_push
+    # Generic exec commentary + ordinary product launch → digest (LOW), not push.
+    assert _mat("CEO discusses strategy in interview", EventType.EXEC_COMMENTARY) == Materiality.LOW
+    assert _mat("Apple unveils new accessory", EventType.PRODUCT_LAUNCH) == Materiality.LOW
+    # A mega launch is still promoted to critical.
+    assert _mat("Apple unveils iPhone 18", EventType.PRODUCT_LAUNCH) == Materiality.CRITICAL
+
+
+def test_fq_a2_03_suppression_applies_in_public_mode(cfg):
+    import dataclasses
+
+    from mag7bot import db, ingest
+
+    now = 1_700_000_000.0
+    pub = dataclasses.replace(cfg, public_mode=True)
+    item = _item("Nvidia ships new GPU to data centers", ticker="NVDA",
+                 source="finnhub", url="https://www.reuters.com/z", ts=now)
+    etype = classify.classify(item)
+    # With a learned suppression rule, the item is dropped even in public mode.
+    db.add_suppression_rule(pub.db_path, "NVDA", etype.value, 1, now)
+    assert ingest.build_events(pub, [item], now) == []

@@ -1,7 +1,15 @@
-# Mag 7 News Bot — Product Requirements (PRD v0.4)
+# Mag 7 News Bot — Product Requirements (PRD v0.5)
 
-> **Status:** v0.4 — revised for the public-launch pivot (broadcast media product).
+> **Status:** v0.5 — revised for the public-launch pivot (broadcast media product).
 > Supersedes the original private-alerting spec. Implementation lives in `mag7bot/`.
+
+**Changelog**
+- **v0.5** — Product identity restated as **precision on a focused watchlist**;
+  "firehose density" dropped as a co-equal pillar (FQ-A2-04). Public feed volume
+  is clamped to `moderate` (firehose is personal-mode only); Tier-1-only instant
+  push, everything else to the daily digest.
+- **v0.4** — Broadcast-product pivot: free (delayed digest) vs paid (real-time)
+  tiers; pricing hypothesis + payment rails; launch KPIs; `PUBLIC_MODE` legal gate.
 
 ---
 
@@ -12,6 +20,15 @@ that publishes fast, **source-verified** market news for a focused watchlist
 (the Magnificent Seven + MU/PLTR) plus US and major-economy macro / central-bank
 events. It is a *publish-only* channel with a private owner control plane (1:1
 DM). Every post carries a canonical link to a primary or reputable source.
+
+**Product identity — precision over density.** The product is a **curated,
+low-noise headline feed**, not a firehose. Raw speed/volume ("everything, now")
+is explicitly *not* a co-equal goal; the value is that a subscriber can read
+every post and each one matters. Concretely: instant push is reserved for Tier-1
+events; everything else rolls into the daily digest, and the public feed volume
+is clamped to `moderate` regardless of config (firehose is a personal-mode knob).
+A self-learning curation loop (👎/✏️/soul) continuously trims noise to the owner's
+definition of signal, measured by the 👎-rate KPI (<5%).
 
 **Tiers (the business model):**
 

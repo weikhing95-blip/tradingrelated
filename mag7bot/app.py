@@ -32,22 +32,31 @@ from .sources import fixtures
 
 
 def _make_client(cfg: Config):
-    if cfg.summary_mode != "llm":
+    # An Anthropic client is needed for LLM summaries AND for semantic dedup —
+    # the latter runs independently of SUMMARY_MODE whenever a key is present
+    # (FQ-A1-01), so build a client if either feature wants one.
+    wants_llm = cfg.summary_mode == "llm"
+    wants_semantic = cfg.enable_semantic_dedup and bool(cfg.anthropic_api_key)
+    if not wants_llm and not wants_semantic:
         return None
     try:
         import anthropic  # imported lazily so verbatim mode needs no SDK creds
 
         client = anthropic.Anthropic()
-        print(f"🤖 LLM summaries ON (model={cfg.summary_model}).")
+        if wants_llm:
+            print(f"🤖 LLM summaries ON (model={cfg.summary_model}).")
+        else:
+            print(f"🧭 Semantic dedup ON (verbatim summaries; model={cfg.summary_model}).")
         return client
     except Exception as exc:
         # Missing/invalid ANTHROPIC_API_KEY or SDK import error must NOT take the
         # bot down — fall back to free verbatim summaries and keep publishing.
         print(
-            f"⚠️  SUMMARY_MODE=llm but the Anthropic client failed to init ({exc}). "
-            f"Falling back to verbatim summaries. Check ANTHROPIC_API_KEY in the env."
+            f"⚠️  Anthropic client failed to init ({exc}). Falling back to verbatim "
+            f"summaries (semantic dedup also disabled). Check ANTHROPIC_API_KEY."
         )
-        cfg.summary_mode = "verbatim"
+        # Config is frozen; use object.__setattr__ for the deliberate fallback.
+        object.__setattr__(cfg, "summary_mode", "verbatim")
         return None
 
 
