@@ -154,6 +154,28 @@ CREATE TABLE IF NOT EXISTS summary_examples (
     created_at   REAL NOT NULL,
     active       INTEGER NOT NULL DEFAULT 1
 );
+
+-- One row per published alert — powers /metrics + the launch KPIs (Phase 3C).
+-- detected_at = the source event/publish time; posted_at = when we pushed;
+-- latency_ms = end-to-end (publish → post), NULL when the source time is unknown.
+CREATE TABLE IF NOT EXISTS metrics (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id    INTEGER,
+    source      TEXT NOT NULL DEFAULT '',
+    tier        TEXT NOT NULL DEFAULT '',
+    event_type  TEXT NOT NULL DEFAULT '',
+    detected_at REAL,
+    posted_at   REAL NOT NULL,
+    latency_ms  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_posted ON metrics (posted_at);
+
+-- Small key/value store for operational metadata (last backup, last healthcheck).
+CREATE TABLE IF NOT EXISTS meta (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL DEFAULT 0
+);
 """
 
 
@@ -814,3 +836,112 @@ def get_source_health(path: Path) -> List[dict]:
             "SELECT * FROM source_health ORDER BY updated_at DESC"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# Operational metadata (key/value) — last backup, last healthcheck ping         #
+# --------------------------------------------------------------------------- #
+
+
+def set_meta(path: Path, key: str, value: str, now: float) -> None:
+    with connect(path) as conn:
+        conn.execute(
+            """INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                              updated_at = excluded.updated_at""",
+            (key, value, now),
+        )
+
+
+def get_meta(path: Path, key: str) -> Optional[dict]:
+    """Return {'value': str, 'updated_at': float} for a meta key, or None."""
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT value, updated_at FROM meta WHERE key = ?", (key,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# --------------------------------------------------------------------------- #
+# Metrics (per-published-alert) — powers /metrics + launch KPIs                  #
+# --------------------------------------------------------------------------- #
+
+
+def record_metric(
+    path: Path, event_id: Optional[int], source: str, tier: str, event_type: str,
+    detected_at: Optional[float], posted_at: float,
+) -> None:
+    """Log one published alert. latency_ms is end-to-end (publish→post); it is
+    NULL when the source event time is unknown or implausible (negative)."""
+    latency_ms = None
+    if detected_at and posted_at >= detected_at:
+        latency_ms = int((posted_at - detected_at) * 1000)
+    with connect(path) as conn:
+        conn.execute(
+            """INSERT INTO metrics
+                   (event_id, source, tier, event_type, detected_at, posted_at, latency_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (event_id, source, tier, event_type, detected_at, posted_at, latency_ms),
+        )
+
+
+def _median(values: List[float]) -> Optional[float]:
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return None
+    n = len(vals)
+    mid = n // 2
+    return vals[mid] if n % 2 else (vals[mid - 1] + vals[mid]) / 2
+
+
+def metrics_summary(path: Path, since: float, now: float, feed_id: int = 1) -> dict:
+    """Rolling KPI snapshot since ``since`` (typically now - 7 days):
+      - median latency (seconds) overall and per tier
+      - posts total and posts/day
+      - 👎 rate = distinct 'down'-flagged events / posts
+      - dedup collapse rate = merged duplicates / total contributing items
+    """
+    days = max((now - since) / 86400.0, 1e-9)
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT tier, latency_ms FROM metrics WHERE posted_at >= ?", (since,)
+        ).fetchall()
+        posts = conn.execute(
+            "SELECT COUNT(*) AS n FROM metrics WHERE posted_at >= ?", (since,)
+        ).fetchone()["n"]
+        downs = conn.execute(
+            """SELECT COUNT(DISTINCT COALESCE(event_id, -id)) AS n FROM feedback
+               WHERE verdict = 'down' AND created_at >= ?""",
+            (since,),
+        ).fetchone()["n"]
+        collapse = conn.execute(
+            """SELECT COALESCE(SUM(confirmed_count), 0) AS contrib, COUNT(*) AS events
+               FROM events WHERE feed_id = ? AND ts >= ?""",
+            (feed_id, since),
+        ).fetchone()
+
+    by_tier_ms: dict = {}
+    for r in rows:
+        if r["latency_ms"] is not None:
+            by_tier_ms.setdefault(r["tier"], []).append(r["latency_ms"])
+    all_ms = [ms for lst in by_tier_ms.values() for ms in lst]
+
+    def _sec(ms):
+        return round(ms / 1000.0, 1) if ms is not None else None
+
+    contrib = collapse["contrib"] or 0
+    events = collapse["events"] or 0
+    collapse_rate = round((contrib - events) / contrib, 3) if contrib else 0.0
+
+    return {
+        "posts": int(posts),
+        "posts_per_day": round(posts / days, 1),
+        "median_latency_sec": _sec(_median(all_ms)),
+        "median_latency_by_tier_sec": {
+            tier: _sec(_median(ms_list)) for tier, ms_list in sorted(by_tier_ms.items())
+        },
+        "down_rate": round(downs / posts, 3) if posts else 0.0,
+        "downs": int(downs),
+        "dedup_collapse_rate": collapse_rate,
+        "days": round(days, 1),
+    }

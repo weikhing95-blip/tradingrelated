@@ -202,6 +202,11 @@ class Config:
     # Cross-source/cross-ticker dedup lookback window (hours).
     dedup_window_hours: int = DEDUP_WINDOW_HOURS
 
+    # Reliability (Phase 3)
+    healthcheck_ping_url: str = ""    # pinged each successful poll cycle (external liveness); blank = off
+    enable_backup: bool = True        # nightly SQLite backup DM'd to the owner
+    backup_time_sgt: str = "0330"     # when to run the nightly backup (HHMM, SGT)
+
     # Telegram user client (for channel monitoring)
     telegram_api_id: int = 0          # from my.telegram.org
     telegram_api_hash: str = ""       # from my.telegram.org
@@ -295,6 +300,9 @@ def load_config(dry_run: bool = False) -> Config:
         i.strip().title() for i in _imp_raw.split(",") if i.strip()
     ) or ("High",)
     enable_research_agent = os.environ.get("ENABLE_RESEARCH_AGENT", "false").strip().lower() in _truthy
+    healthcheck_ping_url = os.environ.get("HEALTHCHECK_PING_URL", "").strip()
+    enable_backup = os.environ.get("ENABLE_BACKUP", "true").strip().lower() not in _falsy
+    backup_time_sgt = (os.environ.get("BACKUP_TIME_SGT", "0330").strip() or "0330")
 
     def _float_env(name: str, default: float) -> float:
         try:
@@ -355,6 +363,9 @@ def load_config(dry_run: bool = False) -> Config:
         enable_semantic_dedup=enable_semantic_dedup,
         public_channel=public_channel,
         public_mode=public_mode,
+        healthcheck_ping_url=healthcheck_ping_url,
+        enable_backup=enable_backup,
+        backup_time_sgt=backup_time_sgt,
         enable_econ_calendar=enable_econ_calendar,
         econ_calendar_time_sgt=econ_calendar_time_sgt,
         econ_calendar_currencies=econ_calendar_currencies,

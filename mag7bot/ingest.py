@@ -430,6 +430,11 @@ async def run_cycle(
             try:
                 await publisher.push(event)
                 db.mark_event_sent(cfg.db_path, event.id, SentMode.PUSH)
+                # Metrics: end-to-end latency = post time − source event time.
+                db.record_metric(
+                    cfg.db_path, event.id, event.source_name, event.tier.value,
+                    event.type.value, event.ts, now,
+                )
             except Exception as exc:  # channel post failed (e.g. lost admin)
                 detail = f"{type(exc).__name__}: {exc}"
                 print(f"⚠️  Push to channel failed: {detail}")

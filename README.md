@@ -235,13 +235,26 @@ Before sharing the channel publicly:
 
 ## Observability & health
 
-- **`/status`** — 24h event counts, last push, relay-monitor liveness, and
-  **per-source health** (last fetch count, freshness, error streak).
+- **`/status`** — mode (personal/public), 24h event counts, last push,
+  relay-monitor liveness, **per-source health** (last fetch count, freshness,
+  error streak), and **last backup / last healthcheck ping**.
+- **`/metrics`** — 7-day launch KPIs: **median latency by tier** (publish→post),
+  posts/day, **👎 rate** (target <5%), and dedup collapse rate. Every published
+  alert writes a `metrics` row; these are the numbers that gate going public.
 - **`/channels`** — monitored relay channels with a **live membership check**
   (✅ joined vs ⚠️ not-joined/unresolved).
-- **Failure alerts** — a source breaking, recovering, or a failed channel post
-  sends the owner a one-time DM; a broken source is isolated so it never aborts
-  the polling cycle.
+- **Failure alerts** — a source failing a *sustained* run of polls, recovering,
+  or a failed channel post sends the owner a one-time DM; a broken source is
+  isolated so it never aborts the polling cycle. Transient single blips are
+  silent.
+- **Backups & recovery** — a nightly job (`BACKUP_TIME_SGT`) DMs the owner a
+  gzipped DB snapshot (off-volume safety net); `scripts/restore_db.py` restores
+  it without a duplicate-flood (the `seen` table is preserved). Recovery steps
+  for volume loss / token revocation / source outage / redeploy are in
+  [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+- **External liveness** — set `HEALTHCHECK_PING_URL` and the bot pings it each
+  successful poll cycle, so a monitor (e.g. healthchecks.io) alerts if the worker
+  dies.
 
 ## Curation learning (non-blocking feedback)
 
@@ -368,7 +381,8 @@ to confirm health and `/watchlist`, then wait for the first live alert.
 | `/categories [TICKER [type]]` | View / toggle event types per ticker |
 | `/sources` | Show the active source whitelist (config + approved additions) |
 | `/show` | Expand items from the last digest |
-| `/status` | 24h health: events, last push, relay liveness, per-source health |
+| `/status` | Health: mode, events, last push, relay liveness, per-source health, last backup/healthcheck |
+| `/metrics` | 7-day KPIs: median latency by tier, posts/day, 👎 rate, dedup collapse rate |
 | `/channels` | List relay channels + live membership check (✅ joined) |
 | `/add_channel @user [name]` · `/remove_channel @user` | Manage relay channels |
 | `/test` | Post a sample alert to the channel (publish health-check) |

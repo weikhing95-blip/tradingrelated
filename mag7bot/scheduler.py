@@ -16,7 +16,15 @@ from datetime import time as dtime
 
 from telegram.ext import Application, ContextTypes
 
-from . import db, economic_calendar, ingest, publisher as publisher_mod, research, soul
+from . import (
+    backup as backup_mod,
+    db,
+    economic_calendar,
+    ingest,
+    publisher as publisher_mod,
+    research,
+    soul,
+)
 from .config import (
     is_commercial_safe,
     ALPACA_POLL_SECONDS,
@@ -57,6 +65,24 @@ async def _poll(context: ContextTypes.DEFAULT_TYPE, source_name: str) -> None:
         cfg, [source], bot_data["publisher"], time.time(), bot_data.get("client"),
         alert=_alert,
     )
+    # External liveness: ping the healthcheck URL at the end of a successful
+    # poll cycle so an outside monitor alerts if the worker dies. Fail-soft.
+    await _healthcheck_ping(cfg)
+
+
+async def _healthcheck_ping(cfg) -> None:
+    """Ping HEALTHCHECK_PING_URL (fail-soft) and record the time for /status.
+    A dead/slow monitor endpoint must never disturb the poll loop."""
+    if not cfg.healthcheck_ping_url:
+        return
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.get(cfg.healthcheck_ping_url)
+        db.set_meta(cfg.db_path, "last_healthcheck", str(int(time.time())), time.time())
+    except Exception:
+        pass
 
 
 async def poll_edgar(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -153,6 +179,36 @@ async def soul_review_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             except Exception:
                 pass
+
+
+async def backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Nightly: snapshot the DB off-volume. With no object store configured, the
+    fallback is to DM the gzipped backup to the owner (it's small). Best-effort —
+    a backup failure is logged and never disturbs the bot. Records last-backup
+    time only on successful delivery (an undelivered on-volume copy is no safer)."""
+    bot_data = context.application.bot_data
+    cfg = bot_data["cfg"]
+    if not cfg.enable_backup or not cfg.owner_user_id:
+        return
+    try:
+        gz = backup_mod.create_backup(cfg.db_path)
+    except Exception as exc:
+        print(f"⚠️  DB backup failed: {type(exc).__name__}: {exc}")
+        return
+    try:
+        with open(gz, "rb") as fh:
+            await context.application.bot.send_document(
+                chat_id=cfg.owner_user_id, document=fh, filename=gz.name,
+                caption="🗄 Nightly DB backup — keep this to restore after a volume loss.",
+            )
+        db.set_meta(cfg.db_path, "last_backup", str(int(time.time())), time.time())
+    except Exception as exc:
+        print(f"⚠️  DB backup DM failed: {type(exc).__name__}: {exc}")
+    finally:
+        try:
+            gz.unlink()
+        except OSError:
+            pass
 
 
 async def digest_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -271,6 +327,14 @@ def setup_jobs(application: Application) -> None:
         print(f"📅 Economic-calendar preview ENABLED (daily {cfg.econ_calendar_time_sgt} SGT).")
     elif cfg.enable_econ_calendar and cfg.public_mode:
         print("📅 Economic-calendar preview OFF — disabled in PUBLIC_MODE (source ToS not yet cleared).")
+    if cfg.enable_backup and cfg.owner_user_id:
+        bh, bm = int(cfg.backup_time_sgt[:2]), int(cfg.backup_time_sgt[2:])
+        jq.run_daily(
+            backup_job, time=dtime(hour=bh, minute=bm, tzinfo=SGT), name="db_backup",
+        )
+        print(f"🗄 Nightly DB backup ENABLED (daily {cfg.backup_time_sgt} SGT → owner DM).")
+    if cfg.healthcheck_ping_url:
+        print("💓 External healthcheck ping ENABLED (each successful poll cycle).")
     schedule_digest(application, cfg.digest_time_sgt)
     application.bot_data["reschedule_digest"] = lambda hhmm: schedule_digest(
         application, hhmm
